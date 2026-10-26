@@ -17,6 +17,16 @@
         0
       ]
     },
+    "auxiliary": {
+      "dac": [
+        512,
+        2048
+      ],
+      "attenuation": [
+        -6,
+        -12
+      ]
+    },
     "calibration": {
       "offset": -3,
       "slope": 12
@@ -173,12 +183,21 @@
           "$ref": "#/$defs/tree-3"
         },
         "output": {
-          "$ref": "#/$defs/tree-8"
+          "$ref": "#/$defs/tree-8",
+          "tree-edge-meta": {
+            "doc": "Main output bank."
+          }
+        },
+        "auxiliary": {
+          "$ref": "#/$defs/tree-8",
+          "tree-edge-meta": {
+            "doc": "Auxiliary output bank."
+          }
         },
         "calibration": {
           "$ref": "#/$defs/tree-10",
           "tree-edge-meta": {
-            "doc": "Factory calibration applied to measurements."
+            "doc": "Factory calibration for the temperature measurement."
           }
         },
         "temp": {
@@ -192,7 +211,8 @@
       "required": [
         "serial",
         "control",
-        "output"
+        "output",
+        "auxiliary"
       ],
       "tree-kind": "named",
       "tree-node-meta": {

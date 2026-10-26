@@ -1,9 +1,11 @@
 // Settings shared by core/protocol examples, host consumers, and the embedded benchmark.
 // Covers read-only fields, validated writes, atomic enums, arrays, optional presence,
-// renamed paths, and metadata. Specialized shapes stay in focused tests so the
-// benchmark's handwritten and derived implementations remain comparable.
+// renamed paths, and metadata. Changes also need corresponding updates to the
+// benchmark's handwritten implementation and transcripts.
 // tests/json_schema.rs checks the tracked common.json and common.ndjson exports;
 // host consumers read those files without needing a Rust toolchain.
+// The example represents an analog-output controller with main and auxiliary
+// banks, each containing two DAC setpoints and two attenuation settings.
 use miniconf::{Tree, leaf};
 use serde::{Deserialize, Serialize};
 
@@ -29,8 +31,13 @@ pub struct Settings {
     #[tree(with = read_only, meta(doc))]
     pub serial: u32,
     pub control: Control,
+    /// Main output bank.
+    #[tree(meta(doc))]
     pub output: Output,
-    /// Factory calibration applied to measurements.
+    /// Auxiliary output bank.
+    #[tree(meta(doc))]
+    pub auxiliary: Output,
+    /// Factory calibration for the temperature measurement.
     #[tree(meta(doc))]
     pub calibration: Option<Calibration>,
     #[tree(rename = "temp", with = read_only, meta(unit = "°C"))]
@@ -72,6 +79,10 @@ impl Settings {
                 mode: Mode::Run,
             },
             output: Output::default(),
+            auxiliary: Output {
+                dac: [512, 2048],
+                attenuation: [-6, -12],
+            },
             calibration: Some(Calibration {
                 offset: -3,
                 slope: 12,

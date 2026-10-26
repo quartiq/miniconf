@@ -81,22 +81,33 @@ def document(
 def test_rust_export_contract():
     # Export checked by miniconf/tests/json_schema.rs::consumer_contract_fixture.
     export = Path(__file__).resolve().parents[2] / "miniconf/tests/common.json"
-    inv = Inventory(json.loads(export.read_text()))
-    assert inv.entries["/calibration/slope"].edge == {"unit": "ppm"}
+    exported = json.loads(export.read_text())
+    inv = Inventory(exported)
     assert inv.entries["/control/mode"].kind == "leaf"
     assert not inv.children("/control/mode")
-    assert inv.entries["/output/dac/{index}"].defaults == {
-        "/output/dac/0": 1024,
-        "/output/dac/1": 1024,
-    }
+    for bank in ("output", "auxiliary"):
+        assert inv.entries[f"/{bank}/dac/{{index}}"].defaults == {
+            f"/{bank}/dac/{index}": value
+            for index, value in enumerate(exported["default"][bank]["dac"])
+        }
     assert inv.entries["/calibration"].schema["tree-maybe-absent"]
     assert inv.entries["/temp"].defaults == {"/temp": "__tree-absent__"}
-    text = render(inv)
-    assert "2 items" in text
+    docs = Documents(Path(__file__).parents[1] / "examples/docs")
+    links, problems = docs.attach({"common": inv})
+    assert not problems
+    text = render(inv, links["common"])
+    assert text.count("## `Output`") == 1
+    # Shared explanations appear once; field documentation and defaults remain local.
+    page_text = " ".join(text.split())
+    for doc in docs.documents:
+        tokens = MarkdownIt().parse(doc.body)
+        for previous, token in zip(tokens, tokens[1:]):
+            if previous.type == "paragraph_open" and token.type == "inline":
+                assert page_text.count(" ".join(token.content.split())) == 1
+    for bank in ("output", "auxiliary"):
+        assert inv.entries[f"/{bank}"].edge["doc"] in text
+        assert all(f"`{value}`" in text for value in exported["default"][bank]["dac"])
     assert "absent" in text
-    assert "Hardware serial number." in text
-    assert "Standby" in text and "Run" in text
-    assert "Factory calibration applied to measurements." in text
     page = Page(MarkdownIt().enable("table").render(text))
     assert all(link[1:] in page.ids for link in page.links if link.startswith("#"))
 
@@ -706,40 +717,55 @@ def test_malformed_selector_sections(tmp_path, text):
         Documents(tmp_path)
 
 
-def test_shared_nodes_keep_edges_defaults_and_path_specific_prose(tmp_path):
-    from pathlib import Path
-
-    example = Path(__file__).parents[1] / "examples"
-    schema = json.loads((example / "schema.json").read_text())
+def test_shared_nodes_keep_edges_defaults_and_path_specific_prose(tmp_path, schema):
+    schema["properties"] = {
+        name: {"$ref": "#/$defs/Channel", "tree-edge-meta": {"doc": doc}}
+        for name, doc in [("output", "Main output."), ("monitor", "Monitor output.")]
+    }
+    schema["default"] = dict(zip(("output", "monitor"), schema["default"]["channels"]))
     inventory = Inventory(schema)
-    docs = Documents(example / "docs")
+    document(
+        tmp_path,
+        value="Channel",
+        scope="node",
+        name="channel.md",
+        body="Shared advice.",
+    )
+    docs = document(tmp_path, body="Gain advice.")
     links, problems = docs.attach({"schema": inventory})
     assert not problems
     text = render(inventory, links["schema"])
-    assert text.count("Output channel configuration.") == 1
-    assert text.count("Channels share the acquisition clock.") == 1
-    assert text.count("Conversion gain.") == 1
+    assert text.count("Channel docs.") == 1
+    assert text.count("Shared advice.") == 1
+    assert text.count("Gain docs.") == 1
+    assert text.count("Gain advice.") == 1
     assert "Main output." in text and "Monitor output." in text
     assert "/output" in text and "/monitor" in text
-    assert "1.0" in text and "0.5" in text
+    output, monitor = text.split("### `monitor`", 1)
+    assert "`1`" in output and "`2`" in monitor
     assert "<details>" not in text and "| Child |" not in text
-    assert text.index("## `Settings`") < text.index("## `Channel`")
+    assert text.index("# Example") < text.index("## `Channel`")
     assert not Page(text).duplicates
     # An explanation selected at only one instance must not leak to another.
     document(
-        tmp_path, "path", "/monitor/gain", scope="node", body="Monitor-only advice."
+        tmp_path,
+        "path",
+        "/monitor/gain",
+        scope="node",
+        name="monitor.md",
+        body="Monitor-only advice.",
     )
-    docs = Documents(example / "docs", tmp_path)
+    docs = Documents(tmp_path)
     links, _ = docs.attach({"schema": inventory})
     text = render(inventory, links["schema"])
-    assert text.count("Output channel configuration.") == 2
+    assert text.count("Channel docs.") == 2
     assert text.count("Monitor-only advice.") == 1
     # A bare typename is a selector, not sufficient evidence to merge definitions.
     schema["$defs"]["OtherChannel"] = copy.deepcopy(schema["$defs"]["Channel"])
     schema["$defs"]["OtherChannel"]["properties"]["gain"]["maximum"] = 7
     schema["properties"]["monitor"]["$ref"] = "#/$defs/OtherChannel"
     text = render(Inventory(schema))
-    assert text.count("Output channel configuration.") == 2
+    assert text.count("Channel docs.") == 2
     assert "Maximum:" in text
 
 

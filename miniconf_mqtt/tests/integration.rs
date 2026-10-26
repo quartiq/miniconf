@@ -79,7 +79,8 @@ fn config() -> ConfigBuilder<'static> {
 }
 
 fn compact_config() -> ConfigBuilder<'static> {
-    ConfigBuilder::from_buffer(Box::leak(Box::new([0; 640])), 128).unwrap()
+    // Leave room for the common fixture's root definition plus MQTT headers.
+    ConfigBuilder::from_buffer(Box::leak(Box::new([0; 768])), 128).unwrap()
 }
 
 type TokioConnection = FromTokio<TcpStream>;

@@ -199,7 +199,7 @@ fn schema_inspection_needs_no_settings_instance() {
         usize::MAX,
     ))
     .unwrap();
-    assert_eq!(output, b"/calibration [named] [sem maybe_absent] [edge doc=\"Factory calibration applied to measurements.\"] [node typename=\"Calibration\"]\r\n  offset [leaf] [sem ty=i32]\r\n  slope [leaf] [sem ty=i16] [edge unit=\"ppm\"]\r\n");
+    assert_eq!(output, b"/calibration [named] [sem maybe_absent] [edge doc=\"Factory calibration for the temperature measurement.\"] [node typename=\"Calibration\"]\r\n  offset [leaf] [sem ty=i32]\r\n  slope [leaf] [sem ty=i16] [edge unit=\"ppm\"]\r\n");
     output.clear();
     block_on(write_schema(
         &mut output,

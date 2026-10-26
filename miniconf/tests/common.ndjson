@@ -10,4 +10,4 @@
 {"s":{"ty":"i32"}}
 {"m":{"typename":"Calibration"},"s":{"maybe_absent":true},"i":{"k":"n","c":{"offset":9,"slope":{"r":6,"m":{"unit":"ppm"}}}}}
 {"s":{"ty":"f32","maybe_absent":true}}
-{"m":{"typename":"Settings"},"i":{"k":"n","c":{"serial":{"r":0,"m":{"doc":"Hardware serial number."}},"control":3,"output":8,"calibration":{"r":10,"m":{"doc":"Factory calibration applied to measurements."}},"temp":{"r":11,"m":{"unit":"°C"}}}}}
+{"m":{"typename":"Settings"},"i":{"k":"n","c":{"serial":{"r":0,"m":{"doc":"Hardware serial number."}},"control":3,"output":{"r":8,"m":{"doc":"Main output bank."}},"auxiliary":{"r":8,"m":{"doc":"Auxiliary output bank."}},"calibration":{"r":10,"m":{"doc":"Factory calibration for the temperature measurement."}},"temp":{"r":11,"m":{"unit":"°C"}}}}}

@@ -31,17 +31,31 @@ const indexedSchema = new Schema(
 describe("Schema", () => {
   it("reads the shared Rust settings without expanding leaf values", () => {
     const schema = fixtureSchema();
+    const exported = JSON.parse(
+      readFileSync(resolve("../miniconf/tests/common.json"), "utf8"),
+    );
+    const fields = exported.$defs[exported.$ref.split("/").at(-1)].properties;
     expect(schema.node("/control/mode")).toMatchObject({
       kind: "leaf",
       children: [],
     });
-    expect(schema.node("/calibration/slope").edge).toEqual({ unit: "ppm" });
-    expect(schema.node("/output/dac").children).toHaveLength(2);
+    for (const bank of ["output", "auxiliary"]) {
+      expect(schema.node(`/${bank}`).edge).toEqual(
+        fields[bank]["tree-edge-meta"],
+      );
+      expect(
+        schema.node(`/${bank}/dac`).children.map((child) => child.path),
+      ).toEqual(
+        exported.default[bank].dac.map(
+          (_: number, index: number) => `/${bank}/dac/${index}`,
+        ),
+      );
+    }
     expect(schema.node("/calibration").sem).toMatchObject({
       maybe_absent: true,
     });
     expect(schema.node("/temp").sem).toMatchObject({ maybe_absent: true });
-    expect(schema.node("/temp").edge).toEqual({ unit: "°C" });
+    expect(schema.node("/temp").edge).toEqual(fields.temp["tree-edge-meta"]);
   });
 
   it("walks shared definitions in preorder with path-specific edge metadata", () => {

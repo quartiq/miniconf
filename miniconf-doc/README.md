@@ -10,35 +10,18 @@ Requires Python 3.11 or newer. From a Miniconf checkout, install with
 
 ## Example
 
-The [Rust example](../miniconf/examples/reference.rs) uses the same `Channel` for
-an output and a monitor, with different defaults. It exports the schema and
-construction defaults. From the repository root:
+The [Rust example](../miniconf/examples/reference.rs) exports the schema and
+construction defaults of the [common settings](../miniconf/examples/common.rs)
+used throughout Miniconf's examples. Main and auxiliary outputs share one type,
+with different defaults and field documentation. From the repository root:
 
 ```sh
 cargo run -q -p miniconf --example reference --features schema > /tmp/settings-schema.json
 ```
 
-Its [explanations](examples/docs/channel.md) share one Markdown file:
-
-````markdown
-```miniconf
-scope = "node"
-typename = "Channel"
-```
-
-# Channel operation
-
-Channels share the acquisition clock. Changes take effect at the next frame.
-
-```miniconf
-scope = "edge"
-typename = "Channel.gain"
-```
-
-# Gain calibration
-
-Gain converts the channel's input voltage to output current, in A/V.
-````
+Its [explanations](examples/docs/output.md) share one Markdown file: a node
+explanation selected by `typename = "Output"` and an edge explanation selected
+by `typename = "Output.dac"`.
 
 Build the reference:
 
@@ -47,8 +30,8 @@ miniconf_doc build --output /tmp/reference.md /tmp/settings-schema.json miniconf
 miniconf_doc check /tmp/settings-schema.json miniconf-doc/examples/docs
 ```
 
-For a Python-only preview, use the supplied
-[example schema](examples/schema.json) in place of `/tmp/settings-schema.json`.
+For a Python-only preview from the checkout, use the generated
+[common schema](../miniconf/tests/common.json) in place of `/tmp/settings-schema.json`.
 For your own application, export `TreeJsonSchema::new(Some(&settings))?.root`
 and attach `to_json_value(&settings)?` as its `default`, as the Rust example does.
 Use this export before applying `AllowAbsent`.
@@ -64,6 +47,17 @@ Each top-level `miniconf` fence contains a TOML selector. Its explanation runs t
 the next selector or the end of the file. Use ordinary Markdown with distinct
 headings in each file. Put prose after its selector. Files without selectors can
 serve as ordinary documentation pages.
+
+````markdown
+```miniconf
+scope = "edge"
+typename = "Output.dac"
+```
+
+# DAC values
+
+Accepted values are 0 through 4095.
+````
 
 `scope = "node"` explains a reusable node. `scope = "edge"` explains its use in
 its parent. Keep units, wiring, and application-specific behavior on the edge;

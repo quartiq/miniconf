@@ -20,13 +20,22 @@ def fixture_schema():
 class SchemaTests(TestCase):
     def test_rust_export(self):
         schema = fixture_schema()
+        source = Path(__file__).resolve().parents[2] / "miniconf/tests/common.json"
+        export = json.loads(source.read_text())
+        fields = export["$defs"][export["$ref"].rsplit("/", 1)[1]]["properties"]
         assert schema.node("/control/mode").kind == "leaf"
         assert schema.children("/control/mode") == []
-        assert schema.node("/calibration/slope").edge == {"unit": "ppm"}
         assert schema.node("/calibration").schema["sem"]["maybe_absent"]
         assert schema.node("/temp").schema["sem"]["maybe_absent"]
-        assert len(schema.children("/output/dac")) == 2
-        assert schema.indices("/output/dac/1").value == (2, 0, 1)
+        for bank in ("output", "auxiliary"):
+            assert schema.node(f"/{bank}").edge == fields[bank]["tree-edge-meta"]
+            values = export["default"][bank]["dac"]
+            assert len(schema.children(f"/{bank}/dac")) == len(values)
+            for index in range(len(values)):
+                keys = schema.indices(f"/{bank}/dac/{index}")
+                assert keys.value[0] == list(fields).index(bank)
+                assert schema.node(keys).path == f"/{bank}/dac/{index}"
+        assert schema.node("/output").node == schema.node("/auxiliary").node
 
     def test_invalid_definitions(self):
         for defs in (
