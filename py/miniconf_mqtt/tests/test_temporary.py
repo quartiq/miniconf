@@ -62,8 +62,9 @@ def test_cancelled_write_is_still_restored() -> None:
                 await temporary.update({"/a": 3, "/b": 4})
 
         task = asyncio.create_task(override())
-        while len(configuration.writes) < 2:
-            await asyncio.sleep(0)
+        async with asyncio.timeout(5):
+            while len(configuration.writes) < 2:
+                await asyncio.sleep(0)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
