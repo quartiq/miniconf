@@ -4,21 +4,14 @@
 def sections(inventory, attachments):
     groups, by_path = {}, {}
     for entry in inventory.entries.values():
-        if entry.path and not (
-            entry.metadata("node").get("typename")
-            or entry.metadata("node").get("doc")
+        documented = (
+            entry.metadata("node").get("doc")
             or entry.schema.get("description")
             or (entry.path, "node") in attachments
-        ):
-            continue
-        if (
-            entry.path
-            and entry.kind == "leaf"
-            and not (
-                entry.metadata("node").get("doc")
-                or entry.schema.get("description")
-                or (entry.path, "node") in attachments
-            )
+        )
+        if entry.path and not (
+            documented
+            or (entry.kind != "leaf" and entry.metadata("node").get("typename"))
         ):
             continue
         selected = tuple(
