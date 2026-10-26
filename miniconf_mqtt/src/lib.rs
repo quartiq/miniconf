@@ -56,7 +56,6 @@
 
 mod client;
 mod message;
-mod schema;
 #[cfg(test)]
 mod tests;
 

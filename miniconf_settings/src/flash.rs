@@ -202,14 +202,11 @@ impl<'a, S: NorFlash> Store<'a, S> {
     /// Failure leaves `settings` unchanged when clones have independent mutable state.
     /// Setter side effects are not rolled back. Erasing unusable storage is explicit.
     /// The underlying map may repair interrupted writes while reading.
-    pub fn load<'s, T>(
-        &'s mut self,
-        settings: &'s mut T,
-    ) -> impl core::future::Future<Output = Result<Load, Error<S::Error>>> + 's
+    pub async fn load<T>(&mut self, settings: &mut T) -> Result<Load, Error<S::Error>>
     where
         T: TreeDeserializeOwned + Clone,
     {
-        self.load_validated(settings, |_| true)
+        self.load_validated(settings, |_| true).await
     }
 
     /// Load the newest intact snapshot accepted by the application.
@@ -303,7 +300,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
         };
         self.head = Some(entry);
         self.write_snapshot(settings, entry, description).await?;
-        self.publish(entry).await?;
+        self.commit_manifest(entry).await?;
         self.recovered = false;
         Ok(())
     }
@@ -320,7 +317,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
             snapshot: Snapshot::Defaults,
         };
         self.head = Some(entry);
-        self.publish(entry).await?;
+        self.commit_manifest(entry).await?;
         self.recovered = false;
         Ok(())
     }
@@ -338,7 +335,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
         self.active = None;
         self.recovered = false;
         self.map.erase_all().await?;
-        self.publish(Entry {
+        self.commit_manifest(Entry {
             slot: 0,
             generation: 0,
             snapshot: Snapshot::Defaults,
@@ -368,16 +365,12 @@ impl<'a, S: NorFlash> Store<'a, S> {
     where
         T: TreeSerialize,
     {
-        let mut encoder = snapshot::Encoder::new(T::SCHEMA);
+        let mut encoder = snapshot::Encoder::new(T::SCHEMA, self.buffers.record);
         let mut chunks = 0usize;
         let mut records = 0u16;
         let mut bytes = 0u32;
         loop {
-            let chunk = encoder.encode(
-                settings,
-                &mut self.buffers.chunk[CHUNK_HEADER_LEN..],
-                self.buffers.record,
-            )?;
+            let chunk = encoder.encode(settings, &mut self.buffers.chunk[CHUNK_HEADER_LEN..])?;
             if chunk.bytes != 0 {
                 chunks += 1;
                 if chunks > MAX_CHUNKS {
@@ -407,13 +400,9 @@ impl<'a, S: NorFlash> Store<'a, S> {
     where
         T: TreeSerialize,
     {
-        let mut encoder = snapshot::Encoder::new(T::SCHEMA);
+        let mut encoder = snapshot::Encoder::new(T::SCHEMA, self.buffers.record);
         for index in 0..description.chunks {
-            let chunk = encoder.encode(
-                settings,
-                &mut self.buffers.chunk[CHUNK_HEADER_LEN..],
-                self.buffers.record,
-            )?;
+            let chunk = encoder.encode(settings, &mut self.buffers.chunk[CHUNK_HEADER_LEN..])?;
             write_chunk_header(self.buffers.chunk, entry.generation, index);
             let expected = &self.buffers.chunk[..CHUNK_HEADER_LEN + chunk.bytes];
             let Some(stored) = self
@@ -439,13 +428,9 @@ impl<'a, S: NorFlash> Store<'a, S> {
     where
         T: TreeSerialize,
     {
-        let mut encoder = snapshot::Encoder::new(T::SCHEMA);
+        let mut encoder = snapshot::Encoder::new(T::SCHEMA, self.buffers.record);
         for index in 0..description.chunks {
-            let chunk = encoder.encode(
-                settings,
-                &mut self.buffers.chunk[CHUNK_HEADER_LEN..],
-                self.buffers.record,
-            )?;
+            let chunk = encoder.encode(settings, &mut self.buffers.chunk[CHUNK_HEADER_LEN..])?;
             write_chunk_header(self.buffers.chunk, entry.generation, index);
             self.map
                 .store_item(
@@ -458,7 +443,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
         Ok(())
     }
 
-    async fn publish(&mut self, entry: Entry) -> Result<(), Error<S::Error>> {
+    async fn commit_manifest(&mut self, entry: Entry) -> Result<(), Error<S::Error>> {
         let manifest = manifest(entry);
         let result = self
             .map

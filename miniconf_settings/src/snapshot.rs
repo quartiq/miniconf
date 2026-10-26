@@ -106,28 +106,28 @@ where
     Ok(())
 }
 
-/// Traversal and a pending record length; settings are borrowed only while encoding.
+/// Traversal and pending record bytes; settings are borrowed only while encoding.
 #[cfg(any(feature = "flash", test))]
-pub(crate) struct Encoder {
+pub(crate) struct Encoder<'a> {
+    record: &'a mut [u8],
     nodes: ExactSize<NodeIter<Indices<[usize; MAX_DEPTH]>, MAX_DEPTH>>,
     pending: usize,
 }
 
 #[cfg(any(feature = "flash", test))]
-impl Encoder {
-    pub(crate) fn new(schema: &'static Schema) -> Self {
+impl<'a> Encoder<'a> {
+    pub(crate) fn new(schema: &'static Schema, record: &'a mut [u8]) -> Self {
         Self {
+            record,
             nodes: schema.nodes(),
             pending: 0,
         }
     }
 
-    /// Keep the same record scratch buffer between calls: it may contain a pending leaf.
     pub(crate) fn encode<S: TreeSerialize>(
         &mut self,
         settings: &S,
         output: &mut [u8],
-        record: &mut [u8],
     ) -> Result<Chunk, SnapshotError> {
         let mut bytes = 0;
         let mut records = 0u16;
@@ -141,7 +141,7 @@ impl Encoder {
                     });
                 };
                 let indices = indices.map_err(|_| SnapshotError::Path)?;
-                let Some(len) = encode_record(settings, indices.as_ref(), record)? else {
+                let Some(len) = encode_record(settings, indices.as_ref(), self.record)? else {
                     continue;
                 };
                 self.pending = len;
@@ -156,7 +156,7 @@ impl Encoder {
                     done: false,
                 });
             };
-            target.copy_from_slice(&record[..self.pending]);
+            target.copy_from_slice(&self.record[..self.pending]);
             bytes += self.pending;
             records = records.checked_add(1).ok_or(SnapshotError::Serialize)?;
             self.pending = 0;
@@ -295,15 +295,15 @@ mod tests {
             choice: Choice::B(-7),
         };
         let mut loaded = TaggedSettings::default();
-        let mut encoder = Encoder::new(TaggedSettings::SCHEMA);
         let mut chunk = [0; 20];
         let mut record = [0; 48];
+        let mut encoder = Encoder::new(TaggedSettings::SCHEMA, &mut record);
         assert_eq!(
-            encoder.encode(&settings, &mut [], &mut record).unwrap_err(),
+            encoder.encode(&settings, &mut []).unwrap_err(),
             SnapshotError::BufferTooSmall
         );
         loop {
-            let encoded = encoder.encode(&settings, &mut chunk, &mut record).unwrap();
+            let encoded = encoder.encode(&settings, &mut chunk).unwrap();
             assert_eq!(encoded.records, 1);
             apply_chunk(&mut loaded, &chunk[..encoded.bytes]).unwrap();
             if encoded.done {

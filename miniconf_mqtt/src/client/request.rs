@@ -15,7 +15,7 @@ use crate::{
     TRANSIENT_TEXT_PROPERTIES,
     client::{ChangedKey, Miniconf, PendingOp, ReplyTarget, Route},
     debug,
-    message::{DepthError, ResponseBody, ResponseCode, set_path, settings_path, simple_pub_error},
+    message::{DepthError, ResponseBody, set_path, settings_path, simple_pub_error},
     warn,
 };
 
@@ -403,21 +403,24 @@ impl FollowUp {
 fn encode_body(body: &ResponseBody) -> ReplyError {
     let mut error = String::new();
     let mut payload = String::new();
-    write!(payload.as_mut_view(), "{body}").ok();
     let (kind, class, depth) = match body {
         ResponseBody::Retained => {
+            payload.push_str("Retained requests are not accepted").ok();
             error.push_str("Retained").ok();
             ("set", "RequestError", None)
         }
         ResponseBody::Lookup(err) => {
+            write!(payload.as_mut_view(), "{err}").ok();
             write!(error.as_mut_view(), "{:?}", err.inner).ok();
             ("lookup", "SerdeError", Some(err.depth))
         }
         ResponseBody::LeafRequired { depth } => {
+            payload.push_str("Path does not resolve to a leaf").ok();
             write!(error.as_mut_view(), "{:?}", KeyError::TooShort).ok();
             ("set", "KeyError", Some(*depth))
         }
         ResponseBody::Set(err) => {
+            write!(payload.as_mut_view(), "{err}").ok();
             write!(error.as_mut_view(), "{:?}", err.inner).ok();
             ("set", "SerdeError", Some(err.depth))
         }
@@ -454,29 +457,30 @@ where
     IO: Io,
 {
     let mut depth_text = String::<16>::new();
+    // Two text properties, four error fields, and an optional depth.
     let mut props = Vec::<_, 7>::new();
     for prop in TRANSIENT_TEXT_PROPERTIES {
-        props.push(prop.clone()).ok();
+        props.push(prop.clone()).unwrap();
     }
     let payload = if let Some(error) = error {
         for (key, value) in [
-            ("code", ResponseCode::Error.as_str()),
+            ("code", "Error"),
             ("kind", error.kind),
             ("class", error.class),
             ("error", error.error.as_str()),
         ] {
-            props.push(Property::UserProperty(key, value)).ok();
+            props.push(Property::UserProperty(key, value)).unwrap();
         }
         if let Some(depth) = error.depth
             && write!(depth_text.as_mut_view(), "{depth}").is_ok()
         {
             props
                 .push(Property::UserProperty("depth", &depth_text))
-                .ok();
+                .unwrap();
         }
         error.payload.as_bytes()
     } else {
-        props.push(ResponseCode::Ok.into()).ok();
+        props.push(Property::UserProperty("code", "Ok")).unwrap();
         b""
     };
     connection
