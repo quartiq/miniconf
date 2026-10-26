@@ -31,10 +31,7 @@ const indexedSchema = new Schema(
 describe("Schema", () => {
   it("reads the Rust exporter contract without expanding atomic values", () => {
     const fixture = JSON.parse(
-      readFileSync(
-        resolve("../miniconf/tests/schema-contract.json"),
-        "utf8",
-      ),
+      readFileSync(resolve("../miniconf/tests/schema-contract.json"), "utf8"),
     );
     const schema = new Schema(fixture.compact, 1);
     expect(schema.node("/atomic")).toMatchObject({
