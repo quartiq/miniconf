@@ -15,12 +15,12 @@ ERR access
 2048
 OK
 OK
--9
+9
 7
 512
 2048
--6
--12
+6
+12
 ERR access
 512
 OK

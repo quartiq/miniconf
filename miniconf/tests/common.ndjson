@@ -4,10 +4,9 @@
 {"m":{"typename":"Control"},"i":{"k":"n","c":{"enabled":1,"mode":2}}}
 {"s":{"ty":"u16"}}
 {"i":{"k":"h","l":2,"c":4}}
-{"s":{"ty":"i16"}}
-{"i":{"k":"h","l":2,"c":6}}
-{"m":{"typename":"Output"},"i":{"k":"n","c":{"dac":{"r":5,"m":{"max":"4095"}},"attenuation":{"r":7,"m":{"unit":"dB"}}}}}
+{"m":{"typename":"Output"},"i":{"k":"n","c":{"dac":{"r":5,"m":{"max":"4095"}},"attenuation":{"r":5,"m":{"unit":"dB"}}}}}
 {"s":{"ty":"i32"}}
-{"m":{"typename":"Calibration"},"s":{"maybe_absent":true},"i":{"k":"n","c":{"offset":9,"slope":{"r":6,"m":{"unit":"ppm"}}}}}
+{"s":{"ty":"i16"}}
+{"m":{"typename":"Calibration"},"s":{"maybe_absent":true},"i":{"k":"n","c":{"offset":{"r":7,"m":{"unit":"mK"}},"slope":{"r":8,"m":{"unit":"ppm"}}}}}
 {"s":{"ty":"f32","maybe_absent":true}}
-{"m":{"typename":"Settings"},"i":{"k":"n","c":{"serial":{"r":0,"m":{"doc":"Hardware serial number."}},"control":3,"output":{"r":8,"m":{"doc":"Main output bank."}},"auxiliary":{"r":8,"m":{"doc":"Auxiliary output bank."}},"calibration":{"r":10,"m":{"doc":"Factory calibration for the temperature measurement."}},"temp":{"r":11,"m":{"unit":"°C"}}}}}
+{"m":{"typename":"Settings"},"i":{"k":"n","c":{"serial":{"r":0,"m":{"doc":"Hardware serial number."}},"control":3,"output":{"r":6,"m":{"doc":"Main output bank."}},"auxiliary":{"r":6,"m":{"doc":"Auxiliary output bank."}},"calibration":{"r":9,"m":{"doc":"Factory calibration for the temperature measurement."}},"temp":{"r":10,"m":{"unit":"°C"}}}}}

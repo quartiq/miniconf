@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$ref": "#/$defs/tree-12",
+  "$ref": "#/$defs/tree-11",
   "default": {
     "serial": 4660,
     "control": {
@@ -23,8 +23,8 @@
         2048
       ],
       "attenuation": [
-        -6,
-        -12
+        6,
+        12
       ]
     },
     "calibration": {
@@ -94,22 +94,6 @@
       "tree-kind": "homogeneous"
     },
     "tree-6": {
-      "type": "integer",
-      "format": "int16",
-      "minimum": -32768,
-      "maximum": 32767,
-      "tree-kind": "leaf"
-    },
-    "tree-7": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/tree-6"
-      },
-      "minItems": 2,
-      "maxItems": 2,
-      "tree-kind": "homogeneous"
-    },
-    "tree-8": {
       "type": "object",
       "properties": {
         "dac": {
@@ -119,7 +103,7 @@
           }
         },
         "attenuation": {
-          "$ref": "#/$defs/tree-7",
+          "$ref": "#/$defs/tree-5",
           "tree-edge-meta": {
             "unit": "dB"
           }
@@ -135,19 +119,29 @@
         "typename": "Output"
       }
     },
-    "tree-9": {
+    "tree-7": {
       "type": "integer",
       "format": "int32",
       "tree-kind": "leaf"
     },
-    "tree-10": {
+    "tree-8": {
+      "type": "integer",
+      "format": "int16",
+      "minimum": -32768,
+      "maximum": 32767,
+      "tree-kind": "leaf"
+    },
+    "tree-9": {
       "type": "object",
       "properties": {
         "offset": {
-          "$ref": "#/$defs/tree-9"
+          "$ref": "#/$defs/tree-7",
+          "tree-edge-meta": {
+            "unit": "mK"
+          }
         },
         "slope": {
-          "$ref": "#/$defs/tree-6",
+          "$ref": "#/$defs/tree-8",
           "tree-edge-meta": {
             "unit": "ppm"
           }
@@ -164,13 +158,13 @@
       },
       "tree-maybe-absent": true
     },
-    "tree-11": {
+    "tree-10": {
       "type": "number",
       "format": "float",
       "tree-kind": "leaf",
       "tree-maybe-absent": true
     },
-    "tree-12": {
+    "tree-11": {
       "type": "object",
       "properties": {
         "serial": {
@@ -183,25 +177,25 @@
           "$ref": "#/$defs/tree-3"
         },
         "output": {
-          "$ref": "#/$defs/tree-8",
+          "$ref": "#/$defs/tree-6",
           "tree-edge-meta": {
             "doc": "Main output bank."
           }
         },
         "auxiliary": {
-          "$ref": "#/$defs/tree-8",
+          "$ref": "#/$defs/tree-6",
           "tree-edge-meta": {
             "doc": "Auxiliary output bank."
           }
         },
         "calibration": {
-          "$ref": "#/$defs/tree-10",
+          "$ref": "#/$defs/tree-9",
           "tree-edge-meta": {
             "doc": "Factory calibration for the temperature measurement."
           }
         },
         "temp": {
-          "$ref": "#/$defs/tree-11",
+          "$ref": "#/$defs/tree-10",
           "tree-edge-meta": {
             "unit": "°C"
           }
