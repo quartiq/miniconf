@@ -19,6 +19,7 @@ pub enum Mode {
 #[derive(Clone, Default, PartialEq, Eq, Tree)]
 #[tree(meta(typename))]
 pub struct Calibration {
+    #[tree(meta(unit = "mK"))]
     pub offset: i32,
     #[tree(meta(unit = "ppm"))]
     pub slope: i16,
@@ -58,7 +59,7 @@ pub struct Output {
     #[tree(with = dac, meta(max = "4095"))]
     pub dac: [u16; 2],
     #[tree(meta(unit = "dB"))]
-    pub attenuation: [i16; 2],
+    pub attenuation: [u16; 2],
 }
 
 impl Default for Output {
@@ -81,7 +82,7 @@ impl Settings {
             output: Output::default(),
             auxiliary: Output {
                 dac: [512, 2048],
-                attenuation: [-6, -12],
+                attenuation: [6, 12],
             },
             calibration: Some(Calibration {
                 offset: -3,

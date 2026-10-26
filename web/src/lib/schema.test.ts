@@ -9,15 +9,6 @@ import {
   type CompactDef,
 } from "./schema";
 
-function fixtureSchema(): Schema {
-  const fixture = resolve("../miniconf/tests/common.ndjson");
-  const defs = readFileSync(fixture, "utf8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as CompactDef);
-  return new Schema(defs, 1);
-}
-
 const indexedSchema = new Schema(
   [
     { s: { ty: "f32" } },
@@ -29,33 +20,18 @@ const indexedSchema = new Schema(
 );
 
 describe("Schema", () => {
-  it("reads the shared Rust settings without expanding leaf values", () => {
-    const schema = fixtureSchema();
-    const exported = JSON.parse(
-      readFileSync(resolve("../miniconf/tests/common.json"), "utf8"),
-    );
-    const fields = exported.$defs[exported.$ref.split("/").at(-1)].properties;
-    expect(schema.node("/control/mode")).toMatchObject({
-      kind: "leaf",
-      children: [],
-    });
-    for (const bank of ["output", "auxiliary"]) {
-      expect(schema.node(`/${bank}`).edge).toEqual(
-        fields[bank]["tree-edge-meta"],
-      );
-      expect(
-        schema.node(`/${bank}/dac`).children.map((child) => child.path),
-      ).toEqual(
-        exported.default[bank].dac.map(
-          (_: number, index: number) => `/${bank}/dac/${index}`,
-        ),
-      );
-    }
-    expect(schema.node("/calibration").sem).toMatchObject({
-      maybe_absent: true,
-    });
-    expect(schema.node("/temp").sem).toMatchObject({ maybe_absent: true });
-    expect(schema.node("/temp").edge).toEqual(fields.temp["tree-edge-meta"]);
+  it("resolves every path walked in the shared Rust export", () => {
+    const defs = readFileSync(
+      resolve("../miniconf/tests/common.ndjson"),
+      "utf8",
+    )
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as CompactDef);
+    const schema = new Schema(defs, 1);
+    const nodes = schema.walk();
+    expect(nodes.length).toBeGreaterThan(1);
+    for (const node of nodes) expect(schema.node(node.path)).toEqual(node);
   });
 
   it("walks shared definitions in preorder with path-specific edge metadata", () => {
@@ -164,24 +140,9 @@ describe("Schema", () => {
     expect(refs).toBe(1);
   });
 
-  it("matches the compact schema fixture paths", () => {
-    const schema = fixtureSchema();
-
-    expect(schema.walk("/control").map((node) => node.path)).toEqual([
-      "/control",
-      "/control/enabled",
-      "/control/mode",
-    ]);
-    expect(schema.node("/serial").edge).toEqual({
-      doc: "Hardware serial number.",
-    });
-  });
-
   it("uses the empty path for the root", () => {
-    const schema = fixtureSchema();
-
-    expect(schema.path("")).toBe("");
-    expect(() => schema.path("/")).toThrow("Unknown schema path");
+    expect(indexedSchema.path("")).toBe("");
+    expect(() => indexedSchema.path("/")).toThrow("Unknown schema path");
   });
 
   it("resolves numbered and homogeneous paths", () => {

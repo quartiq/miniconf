@@ -372,12 +372,11 @@ async def main() -> None:
                 await wait_event_value(events, ENABLED, False)
             finally:
                 await events.aclose()
-            output = await mc.snapshot("/output")
-            assert output[DAC0] == 1024
+            await mc.set(DAC0, 123)
             events = mc.watch("/output")
             try:
-                await wait_event_value(events, DAC0, 1024)
-                assert (await mc.snapshot("/output"))[DAC0] == 1024
+                await wait_event_value(events, DAC0, 123)
+                assert (await mc.snapshot("/output"))[DAC0] == 123
                 await mc.set(DAC0, 2048)
                 await wait_event_value(events, DAC0, 2048)
             finally:
