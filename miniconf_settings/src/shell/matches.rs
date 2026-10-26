@@ -14,7 +14,7 @@ pub(super) async fn write_matches<W: Write>(
         && let Some(len) = candidates.numeric_len()
         && len > MAX_MATCHES
     {
-        let hint = heapless::format!(64; "0..={}\r\n", len - 1).unwrap();
+        let hint = heapless::format!(64; "len={len}\r\n").unwrap();
         return writer.write_all(hint.as_bytes()).await;
     }
     let names = candidates.tokens().filter_map(|(mut name, branch)| {
@@ -110,7 +110,7 @@ mod tests {
         for (schema, expected) in [
             (<[u16; 2]>::SCHEMA, "0  1\r\n"),
             (<(u16, [u16; 2])>::SCHEMA, "0   1/\r\n"),
-            (<[u16; 1000]>::SCHEMA, "0..=999\r\n"),
+            (<[u16; 1000]>::SCHEMA, "len=1000\r\n"),
         ] {
             let mut output = Vec::new();
             let (_, candidates) = Candidates::path(schema, "/", 1).unwrap();

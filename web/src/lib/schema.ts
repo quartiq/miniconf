@@ -26,12 +26,12 @@ export type SchemaChild = {
   edge?: unknown;
 };
 
-function validatePath(path: string): string {
+export function validatePath(path: string, label = "Path"): string {
   if (path === "") {
     return "";
   }
   if (!path.startsWith("/")) {
-    throw new Error("Path must be empty or start with '/'");
+    throw new Error(`${label} must be empty or start with '/'`);
   }
   return path;
 }
@@ -53,21 +53,62 @@ export class Schema {
     if (defs.length === 0) {
       throw new Error("Schema has no definitions");
     }
+    // Compact definitions are post-order: every edge refers to an earlier
+    // definition. Check the compressed graph without expanding homogeneous nodes.
+    defs.forEach((def, index) => {
+      if (!def || typeof def !== "object" || Array.isArray(def))
+        throw new Error(`Invalid schema definition ${index}`);
+      const internal = def.i;
+      if (internal === undefined) return;
+      if (!internal || typeof internal !== "object")
+        throw new Error(`Invalid schema kind in definition ${index}`);
+      let refs: CompactRef[];
+      switch (internal.k) {
+        case "n":
+          if (
+            !internal.c ||
+            typeof internal.c !== "object" ||
+            Array.isArray(internal.c)
+          )
+            throw new Error("Invalid named schema children");
+          refs = Object.values(internal.c);
+          break;
+        case "d":
+          if (!Array.isArray(internal.c))
+            throw new Error("Invalid numbered schema children");
+          refs = internal.c;
+          break;
+        case "h":
+          if (!Number.isSafeInteger(internal.l) || internal.l < 0)
+            throw new Error("Invalid homogeneous schema length");
+          refs = [internal.c];
+          break;
+        default:
+          throw new Error("Unknown schema kind");
+      }
+      for (const ref of refs) {
+        const id = typeof ref === "number" ? ref : ref?.r;
+        if (!Number.isInteger(id) || id < 0 || id >= index)
+          throw new Error(
+            `Invalid schema reference ${id} in definition ${index}`,
+          );
+      }
+    });
     this.defs = defs;
     this.rev = rev;
     this.root = defs.length - 1;
   }
 
   path(path: string): string {
-    const normalized = validatePath(path);
-    this.resolve(normalized);
-    return normalized;
+    validatePath(path);
+    this.resolve(path);
+    return path;
   }
 
   node(path = ""): SchemaNode {
-    const normalized = validatePath(path);
-    const ref = this.resolve(normalized);
-    return this.nodeFrom(normalized, ref, this.childEntries(refId(ref)));
+    validatePath(path);
+    const ref = this.resolve(path);
+    return this.nodeFrom(path, ref, this.childEntries(refId(ref)));
   }
 
   private nodeFrom(
@@ -100,9 +141,6 @@ export class Schema {
     const nodes: SchemaNode[] = [];
     const visit = (path: string, ref: CompactRef) => {
       const id = refId(ref);
-      if (id < 0 || id >= this.defs.length) {
-        throw new Error(`Invalid schema reference ${id} in ${path}`);
-      }
       const entries = this.childEntries(id);
       const node = this.nodeFrom(path, ref, entries);
       nodes.push(node);
@@ -138,9 +176,6 @@ export class Schema {
       }
       ref = child;
       id = refId(ref);
-      if (id < 0 || id >= this.defs.length) {
-        throw new Error(`Invalid schema reference ${id} in ${path}`);
-      }
     }
     return ref;
   }
@@ -183,12 +218,18 @@ export class Schema {
 }
 
 export function subtreeMatch(path: string, root: string): boolean {
-  const normalizedRoot = validatePath(root);
-  return (
-    !normalizedRoot ||
-    path === normalizedRoot ||
-    path.startsWith(`${normalizedRoot}/`)
-  );
+  validatePath(root);
+  return !root || path === root || path.startsWith(`${root}/`);
+}
+
+// Nonempty objects expose named fields; all other metadata is one unnamed value.
+export function metadataEntries(value: unknown): [string | null, unknown][] {
+  return value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length
+    ? Object.entries(value)
+    : [[null, value]];
 }
 
 export function displayPath(path: string): string {
@@ -199,26 +240,46 @@ export function formatSchemaName(node: SchemaNode): string {
   return node.path.split("/").at(-1) || '\"\"';
 }
 
-export function schemaSummary(node: SchemaNode): string {
-  const parts: string[] = [node.kind];
-  if (node.kind === "homogeneous") parts.push(`0..${node.children.length}`);
+export function describeSemantics(value: unknown): {
+  summary: string[];
+  extra: unknown;
+} {
+  const summary: string[] = [];
   // Only Sem fields defined by Rust carry portable meaning. Other metadata is opaque.
-  if (node.sem && typeof node.sem === "object" && !Array.isArray(node.sem)) {
-    const sem = node.sem as Record<string, unknown>;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const sem = { ...value } as Record<string, unknown>;
     if (
       typeof sem.ty === "string" &&
       /^(bool|[iu](8|16|32|64|128|size)|f(32|64)|str)$/.test(sem.ty)
-    )
-      parts.push(sem.ty);
-    if (sem.oneof === true) parts.push("mutually exclusive children");
-    if (sem.maybe_absent === true) parts.push("may be absent");
+    ) {
+      summary.push(sem.ty);
+      delete sem.ty;
+    }
+    for (const [key, label] of [
+      ["oneof", "mutually exclusive children"],
+      ["maybe_absent", "may be absent"],
+    ]) {
+      if (typeof sem[key] === "boolean") {
+        if (sem[key]) summary.push(label);
+        delete sem[key];
+      }
+    }
+    return { summary, extra: Object.keys(sem).length ? sem : undefined };
   }
+  return { summary, extra: value };
+}
+
+export function schemaSummary(node: SchemaNode): string {
+  const parts: string[] = [node.kind];
+  if (node.kind === "homogeneous" || node.kind === "numbered")
+    parts.push(`len=${node.children.length}`);
+  parts.push(...describeSemantics(node.sem).summary);
   return parts.join(" · ");
 }
 
 export function schemaTooltip(node: SchemaNode): string {
   const sections: [string, unknown][] = [
-    ["Semantics", node.sem],
+    ["Semantics", describeSemantics(node.sem).extra],
     ["Edge metadata", node.edge],
     ["Node metadata", node.node],
   ];
@@ -227,15 +288,8 @@ export function schemaTooltip(node: SchemaNode): string {
     schemaSummary(node),
     ...sections.flatMap(([label, value]) => {
       if (value === undefined) return [];
-      const entries =
-        value !== null &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        Object.keys(value).length
-          ? Object.entries(value)
-          : [[null, value]];
       return [
-        `${label}:\n${entries
+        `${label}:\n${metadataEntries(value)
           .map(
             ([key, item]) =>
               `${key === null ? "" : `${key || '""'}: `}${typeof item === "string" ? item : JSON.stringify(item)}`,

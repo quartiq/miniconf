@@ -112,6 +112,8 @@ Command suffixes:
   Updates are independent of SET replies. No initial retained dump is requested.
   This also works with `--raw`, `--fire-and-forget`, or no commands. Errors go to stderr.
 - `PATH?` renders schema; `PATH??` prints compact schema NDJSON.
+  Indexed nodes show `len=N` (indices start at zero); `{index}` describes
+  every child of a homogeneous node once.
 - `PATH!` renders retained subtree values; `PATH!!` prints raw `/path=value` lines.
 - The root path is empty: use the quoted command `'?'` for root schema. `'/?'` addresses the
   empty-name child below root; `/` is not an alias for root.

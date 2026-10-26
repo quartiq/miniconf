@@ -20,7 +20,7 @@ export const test = base.extend({
     const broker = new WebSocketServer({ server });
     const prefix = "dt/test/device";
     const schema = `${JSON.stringify({
-      s: { ty: "i32", future: ["opaque"] },
+      s: { ty: "i32", maybe_absent: true, future: ["opaque"] },
       m: {
         note: "first line\nsecond line",
         flag: false,

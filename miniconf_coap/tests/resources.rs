@@ -12,6 +12,11 @@ use miniconf::Tree;
 use miniconf_coap::{Outcome, RequestParts};
 
 #[cfg(feature = "json-core")]
+#[allow(dead_code)]
+#[path = "../../miniconf/examples/common.rs"]
+mod common;
+
+#[cfg(feature = "json-core")]
 #[derive(Tree)]
 struct Settings {
     #[tree(meta(title = "Demo number"))]
@@ -173,12 +178,11 @@ mod json {
 
     #[test]
     fn schema_route_is_paged() {
-        use miniconf::{TreeSchema, compact_schema::SchemaDefs};
-        use miniconf_coap::MAX_SCHEMA_DEFS;
+        use miniconf::TreeSchema;
         use yafnv::Fnv;
 
         init_host_logging();
-        let handler = SchemaRoute::new("/schema", Settings::SCHEMA, 128);
+        let handler = SchemaRoute::new("/schema", common::Settings::SCHEMA, 512);
         #[derive(serde::Deserialize)]
         struct Manifest {
             pages: usize,
@@ -188,6 +192,7 @@ mod json {
         let root = request(code::GET, &["schema"], None, b"");
         let response = handler.handle(&root, &mut buf).response().unwrap();
         let (manifest, _) = serde_json_core::from_slice::<Manifest>(response.payload).unwrap();
+        assert!(manifest.pages > 1);
         let mut pages = Vec::new();
         for page in 0..manifest.pages {
             let req = request(code::GET, &["schema", &page.to_string()], None, b"");
@@ -195,15 +200,7 @@ mod json {
             assert_eq!(response.code, code::CONTENT);
             pages.extend_from_slice(response.payload);
         }
-        // Serialize definitions independently of pagination to detect missing or repeated pages.
-        let defs = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA).unwrap();
-        let mut expected = Vec::new();
-        for id in 0..defs.len() {
-            let len = serde_json_core::to_slice(&defs.definition(id).unwrap(), &mut buf).unwrap();
-            expected.extend_from_slice(&buf[..len]);
-            expected.push(b'\n');
-        }
-        assert_eq!(pages, expected);
+        assert_eq!(pages, include_bytes!("../../miniconf/tests/common.ndjson"));
         assert_eq!(manifest.schema_rev, u32::OFFSET_BASIS.fnv1a(pages));
         for path in [
             &["schema"][..],
@@ -212,8 +209,8 @@ mod json {
             &["schema", "99"],
         ] {
             let req = request(code::GET, path, None, b"");
-            let mut small = [0; 128];
-            let mut large = [0; 512];
+            let mut small = [0; 512];
+            let mut large = [0; 1024];
             let small = handler.handle(&req, &mut small);
             let large = handler.handle(&req, &mut large);
             let small = small.response().unwrap();

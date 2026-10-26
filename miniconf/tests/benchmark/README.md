@@ -3,7 +3,7 @@
 What does Miniconf cost in a small command interface compared with handwritten
 field access?
 
-Both implementations expose the unchanged [example settings](../../examples/common.rs):
+Both implementations expose the same [example settings](../../examples/common.rs):
 `/path;` reads and `/path=JSON;` writes. Tree's optional `help` feature adds
 `help [/path];`, describing a node and its immediate children.
 Help includes node type names, field documentation,
@@ -26,7 +26,7 @@ or validation comparisons. [Help replies](src/help-replies.txt) are checked sepa
 
 ## Results
 
-Rust 1.99.0 (LLVM 23.1.1), Cortex-M3 (`thumbv7m-none-eabi`),
+Rust 1.99.1 (LLVM 23.1.1), Cortex-M3 (`thumbv7m-none-eabi`),
 `opt-level = "s"`, LTO, one codegen unit, Ryu `small`. Each variant is built separately.
 Code and constants are `.text + .rodata`, including the transcript driver but
 excluding the 1,024-byte vector table. Observed stack is the painted high-water
@@ -35,13 +35,13 @@ All variants have zero `.data` and `.bss`.
 
 | Implementation | Code + constants (bytes) | Observed stack (bytes) |
 |---|---:|---:|
-| Manual | 15024 | 424 |
-| Tree | 15968 | 504 |
-| Tree + help | 19724 | 784 |
+| Manual | 15404 | 432 |
+| Tree | 16304 | 496 |
+| Tree + help | 20140 | 768 |
 
 For this interface, Tree replaces handwritten field dispatch and access checks
-for 944 extra bytes of code and constants and 80 extra bytes of observed stack.
-Adding schema-derived help costs another 3,756 bytes and 280 bytes of observed
+for 900 extra bytes of code and constants and 64 extra bytes of observed stack.
+Adding schema-derived help costs another 3,836 bytes and 272 bytes of observed
 stack, including metadata and the help transcript. Metadata features are enabled
 only with `help`.
 

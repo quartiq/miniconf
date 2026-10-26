@@ -54,7 +54,7 @@ describe("tree state", () => {
     expect(row.label).toBe("amplitude");
     expect(row.summary).toBe("leaf · f32");
     expect(row.value).toBe("1.0");
-    expect(row.title).toContain('Semantics:\nty: f32\nfuture: ["opaque"]');
+    expect(row.title).toContain('Semantics:\nfuture: ["opaque"]');
     expect(row.title).toContain("Edge metadata:\nnote: edge note");
     expect(row.title).toContain(
       'Node metadata:\nnote: first line\nsecond line\nflag: false\nempty: null\n"": 0',

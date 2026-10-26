@@ -139,19 +139,23 @@ fn schema_typename_reuse_and_collision() {
     }
 
     let schema = TreeJsonSchema::<Settings<u8>>::new(Some(&Settings::default())).unwrap();
-    assert!(
-        schema
-            .generator
-            .definitions()
-            .contains_key("tree-internal-Channel")
-    );
+    let root = schema
+        .root
+        .as_value()
+        .pointer(&schema.root.as_value()["$ref"].as_str().unwrap()[1..])
+        .unwrap();
     assert_eq!(
-        schema.root.as_value()["properties"]["a"]["$ref"],
-        schema.root.as_value()["properties"]["b"]["$ref"]
+        root["properties"]["a"]["$ref"],
+        root["properties"]["b"]["$ref"]
     );
-    let error = TreeJsonSchema::<Settings<bool>>::new(Some(&Settings::default()))
-        .err()
-        .expect("different definitions must not share a name");
-    assert!(matches!(error, serde_reflection::Error::Custom(message)
-        if message == "Conflicting schema definitions for tree-internal-Channel"));
+    let schema = TreeJsonSchema::<Settings<bool>>::new(Some(&Settings::default())).unwrap();
+    let root = schema
+        .root
+        .as_value()
+        .pointer(&schema.root.as_value()["$ref"].as_str().unwrap()[1..])
+        .unwrap();
+    assert_ne!(
+        root["properties"]["a"]["$ref"],
+        root["properties"]["b"]["$ref"]
+    );
 }

@@ -22,6 +22,24 @@ use tokio::{
 #[path = "../examples/common.rs"]
 mod common;
 
+#[test]
+fn schema_pages_match_common_fixture() {
+    let mut payload = [0u8; 512];
+    let defs = SchemaDefs::<64>::new(common::Settings::SCHEMA).unwrap();
+    let mut actual = String::new();
+    let mut pages = 0;
+    let mut next = 0;
+    while next < defs.len() {
+        let page = serialize_schema_page(&defs, next, &mut payload).unwrap();
+        assert!(page.count > 0);
+        next += page.count;
+        pages += 1;
+        actual.push_str(core::str::from_utf8(&payload[..page.len]).unwrap());
+    }
+    assert!(pages > 1);
+    assert_eq!(actual, include_str!("../../miniconf/tests/common.ndjson"));
+}
+
 const BROKER_ADDR_ENV: &str = "BROKER";
 
 fn init_host_logging() {
@@ -61,7 +79,8 @@ fn config() -> ConfigBuilder<'static> {
 }
 
 fn compact_config() -> ConfigBuilder<'static> {
-    ConfigBuilder::from_buffer(Box::leak(Box::new([0; 640])), 128).unwrap()
+    // Leave room for the common fixture's root definition plus MQTT headers.
+    ConfigBuilder::from_buffer(Box::leak(Box::new([0; 768])), 128).unwrap()
 }
 
 type TokioConnection = FromTokio<TcpStream>;

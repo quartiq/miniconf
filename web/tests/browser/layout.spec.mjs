@@ -103,11 +103,17 @@ test("build identity stays inside both headers without crowding content", async 
 test("metadata and responsive layout keep the workspace usable", async ({
   browsePage: page,
   device,
-}) => {
+}, testInfo) => {
   const editor = page.locator("textarea");
   const root = page.locator('[data-tree-path=""]');
   const leaf = page.locator('[data-tree-path="/leaf"]');
   await expect(page.locator(".schema-body")).toContainText("i32");
+  await expect(page.locator(".schema-body .meta")).toHaveText(
+    "leaf · i32 · may be absent",
+  );
+  await expect(page.getByLabel("Semantics", { exact: true })).not.toContainText(
+    "maybe_absent",
+  );
   await expect(page.locator(".selected details")).toHaveCount(0);
   await root.click();
   await expect(editor).toHaveCount(0);
@@ -172,6 +178,11 @@ test("metadata and responsive layout keep the workspace usable", async ({
     ).toBeVisible();
     await expect(page.getByRole("tree", { name: "Settings" })).toBeVisible();
     await expect(page.locator('[role=treeitem][tabindex="0"]')).toHaveCount(1);
+    if (width === 320 || width === 1200)
+      await page.screenshot({
+        path: testInfo.outputPath(`semantics-${width}.png`),
+        fullPage: true,
+      });
   }
   await page.setViewportSize({ width: 1024, height: 400 });
   await expect(page.locator(".context h1")).toHaveText(device.prefix);

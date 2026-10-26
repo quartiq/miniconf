@@ -1,17 +1,12 @@
 <script lang="ts">
+  import { metadataEntries } from "./lib/schema";
+
   let {
     label,
     value,
     heading = true,
   }: { label: string; value: unknown; heading?: boolean } = $props();
-  let entries = $derived(
-    value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      Object.keys(value).length
-      ? Object.entries(value)
-      : [[null, value]],
-  );
+  let entries = $derived(metadataEntries(value));
 </script>
 
 <section aria-label={label}>

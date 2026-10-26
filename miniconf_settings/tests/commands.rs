@@ -199,7 +199,7 @@ fn schema_inspection_needs_no_settings_instance() {
         usize::MAX,
     ))
     .unwrap();
-    assert_eq!(output, b"/calibration [named] [sem maybe_absent] [edge doc=\"Factory calibration applied to measurements.\"] [node typename=\"Calibration\"]\r\n  offset [leaf] [sem ty=i32]\r\n  slope [leaf] [sem ty=i16] [edge unit=\"ppm\"]\r\n");
+    assert_eq!(output, b"/calibration [named] [sem maybe_absent] [edge doc=\"Factory calibration for the temperature measurement.\"] [node typename=\"Calibration\"]\r\n  offset [leaf] [sem ty=i32]\r\n  slope [leaf] [sem ty=i16] [edge unit=\"ppm\"]\r\n");
     output.clear();
     block_on(write_schema(
         &mut output,
@@ -224,10 +224,10 @@ fn nested_homogeneous_and_numbered() {
     assert_eq!(
         std::str::from_utf8(&output).unwrap(),
         concat!(
-            "(root) [numbered]\r\n",
-            "  0 [homogeneous]\r\n",
-            "    0..3 [homogeneous]\r\n",
-            "      0..2 [leaf] [sem ty=u16]\r\n",
+            "(root) [numbered len=2]\r\n",
+            "  0 [homogeneous len=3]\r\n",
+            "    {index} [homogeneous len=2]\r\n",
+            "      {index} [leaf] [sem ty=u16]\r\n",
             "  1 [leaf] [sem ty=bool]\r\n",
         )
     );
@@ -241,7 +241,7 @@ fn nested_homogeneous_and_numbered() {
     .unwrap();
     assert_eq!(
         output,
-        b"(root) [numbered]\r\n  0 [homogeneous]\r\n  1 [leaf] [sem ty=bool]\r\n"
+        b"(root) [numbered len=2]\r\n  0 [homogeneous len=3]\r\n  1 [leaf] [sem ty=bool]\r\n"
     );
 }
 

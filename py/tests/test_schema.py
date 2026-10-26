@@ -11,13 +11,59 @@ from miniconf.schema import Indices, Schema
 
 
 def fixture_schema():
-    fixture = Path(__file__).resolve().parents[2] / "fixtures/compact-schema.ndjson"
+    fixture = Path(__file__).resolve().parents[2] / "miniconf/tests/common.ndjson"
     return Schema.from_defs(
         [json.loads(line) for line in fixture.read_text().splitlines()], 1
     )
 
 
 class SchemaTests(TestCase):
+    def test_rust_export(self):
+        schema = fixture_schema()
+        source = Path(__file__).resolve().parents[2] / "miniconf/tests/common.json"
+        export = json.loads(source.read_text())
+        fields = export["$defs"][export["$ref"].rsplit("/", 1)[1]]["properties"]
+        assert schema.node("/control/mode").kind == "leaf"
+        assert schema.children("/control/mode") == []
+        assert schema.node("/calibration").schema["sem"]["maybe_absent"]
+        assert schema.node("/temp").schema["sem"]["maybe_absent"]
+        for bank in ("output", "auxiliary"):
+            assert schema.node(f"/{bank}").edge == fields[bank]["tree-edge-meta"]
+            values = export["default"][bank]["dac"]
+            assert len(schema.children(f"/{bank}/dac")) == len(values)
+            for index in range(len(values)):
+                keys = schema.indices(f"/{bank}/dac/{index}")
+                assert keys.value[0] == list(fields).index(bank)
+                assert schema.node(keys).path == f"/{bank}/dac/{index}"
+        assert schema.node("/output").node == schema.node("/auxiliary").node
+
+    def test_invalid_definitions(self):
+        for defs in (
+            [],
+            [None],
+            [{"i": None}],
+            [{"i": {"k": "n", "c": {"bad": 1}}}, {}],
+            [{"i": {"k": "d", "c": [0]}}],
+            [{}, {"i": {"k": "n", "c": []}}],
+            [{}, {"i": {"k": "d", "c": {}}}],
+            [{}, {"i": {"k": "unknown", "c": 0}}],
+            *(
+                [{}, {"i": {"k": "h", "c": ref, "l": 1}}]
+                for ref in (-1, 2, 0.0, False, {}, {"r": -1})
+            ),
+            *(
+                [{}, {"i": {"k": "h", "c": 0, "l": length}}]
+                for length in (-1, 1.0, True, None)
+            ),
+        ):
+            with self.subTest(defs=defs), self.assertRaises(MiniconfException) as error:
+                Schema.from_defs(defs, 1)
+            self.assertEqual(error.exception.code, "Protocol")
+
+        # Validation must not enumerate a homogeneous node's concrete paths.
+        schema = Schema.from_defs([{}, {"i": {"k": "h", "c": 0, "l": 10**12}}], 1)
+        self.assertEqual(schema.node("/999999999999").kind, "leaf")
+
     def test_paths(self):
         assert _normalize_command_path("", "/items/0") == ("", "/items/0")
         assert _normalize_command_path("/", "") == ("/", "/")
@@ -41,23 +87,25 @@ class SchemaTests(TestCase):
 
     def test_schema(self):
         schema_fixture = fixture_schema()
-        assert [node.path for node in schema_fixture.walk()] == [
-            "",
-            "/value",
-            "/nested",
-            "/nested/leaf",
+        assert [node.path for node in schema_fixture.walk("/control")] == [
+            "/control",
+            "/control/enabled",
+            "/control/mode",
         ]
         assert schema_fixture.node().kind == "named"
-        assert schema_fixture.node("/nested").kind == "named"
-        assert schema_fixture.node("/value").kind == "leaf"
-        assert schema_fixture.node("/value").edge == {"role": "selector"}
-        assert schema_fixture.node("/nested").edge is None
-        assert schema_fixture.compact("/nested") == {
-            "path": "/nested",
+        assert schema_fixture.node("/control").kind == "named"
+        assert schema_fixture.node("/control/enabled").kind == "leaf"
+        assert schema_fixture.node("/control").edge is None
+        assert schema_fixture.compact("/control") == {
+            "path": "/control",
             "rev": 1,
             "defs": [
+                {"s": {"ty": "bool"}},
                 {},
-                {"i": {"k": "n", "c": {"leaf": 0}}},
+                {
+                    "m": {"typename": "Control"},
+                    "i": {"k": "n", "c": {"enabled": 0, "mode": 1}},
+                },
             ],
         }
 
@@ -74,8 +122,8 @@ class SchemaTests(TestCase):
         ).splitlines()
         assert compressed_sem == [
             "(root) [named]",
-            "└─ array_tree [homogeneous]",
-            "   └─ 0..2 [leaf] [sem ty=i32]",
+            "└─ array_tree [homogeneous len=2]",
+            "   └─ {index} [leaf] [sem ty=i32]",
         ], compressed_sem
         quoted_meta = render_schema_tree(
             Schema.from_defs(
@@ -108,10 +156,10 @@ class SchemaTests(TestCase):
             1,
         )
         assert render_schema_tree(schema).splitlines() == [
-            "(root) [numbered]",
-            "├─ 0 [homogeneous]",
-            "│  └─ 0..3 [homogeneous]",
-            "│     └─ 0..2 [leaf] [sem ty=u16]",
+            "(root) [numbered len=2]",
+            "├─ 0 [homogeneous len=3]",
+            "│  └─ {index} [homogeneous len=2]",
+            "│     └─ {index} [leaf] [sem ty=u16]",
             "└─ 1 [leaf] [sem ty=bool]",
         ]
 

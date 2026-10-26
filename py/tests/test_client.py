@@ -4,7 +4,6 @@ import asyncio
 import json
 import socket
 import time
-from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, call, patch
 
@@ -68,11 +67,14 @@ ALIVE = dict(proto=1, epoch=1, schema_rev=0xE92760DE, pages=1)
 
 
 def device_transport():
-    fixture = Path(__file__).resolve().parents[2] / "fixtures/compact-schema.ndjson"
     return Transport(
         [
             message("test/alive", json.dumps(ALIVE).encode()),
-            message("test/schema/0", fixture.read_bytes()),
+            message(
+                "test/schema/0",
+                b'{}\n{"i":{"k":"n","c":{"leaf":0}}}\n'
+                b'{"i":{"k":"n","c":{"value":{"r":0,"m":{"role":"selector"}},"nested":1}}}\n',
+            ),
             message("test/settings/value", UserProperty=[("auth", "")]),
         ]
     )

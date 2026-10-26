@@ -3,9 +3,9 @@ use miniconf::{Internal, Meta, Schema};
 
 use crate::MAX_DEPTH;
 
-/// Describe a subtree, showing homogeneous children once as `0..N` (exclusive end).
+/// Describe a subtree, showing indexed collection lengths as `len=N`.
 ///
-/// Indented labels are path segments; ranges describe schema, not literal paths.
+/// Indented labels are path segments; `{index}` describes all homogeneous children once.
 /// Semantics, edge metadata and node metadata remain distinct. Enable Miniconf's
 /// `sem`, `meta-node`, and `meta-edge` features to retain them.
 /// Schema possibilities do not establish runtime presence or writability.
@@ -45,8 +45,7 @@ pub async fn write_schema<W: Write>(
         let edge = children.get_edge_meta(*index);
         let number;
         let name = if homogeneous {
-            number = heapless::format!(24; "0..{}", children.len()).unwrap();
-            &number
+            "{index}"
         } else if let Some(name) = children.get_name(*index) {
             if name.is_empty() { "\"\"" } else { name }
         } else {
@@ -74,10 +73,14 @@ async fn describe<W: Write>(writer: &mut W, node: &Schema, edge: &Meta) -> Resul
         .write_all(match node.internal() {
             None => b" [leaf]",
             Some(Internal::Named(_)) => b" [named]",
-            Some(Internal::Numbered(_)) => b" [numbered]",
-            Some(Internal::Homogeneous(_)) => b" [homogeneous]",
+            Some(Internal::Numbered(_)) => b" [numbered",
+            Some(Internal::Homogeneous(_)) => b" [homogeneous",
         })
         .await?;
+    if let Some(children @ (Internal::Numbered(_) | Internal::Homogeneous(_))) = node.internal() {
+        let length = heapless::format!(32; " len={}]", children.len()).unwrap();
+        writer.write_all(length.as_bytes()).await?;
+    }
     if let Some(sem) = node.sem().filter(|sem| !sem.is_empty()) {
         writer.write_all(b" [sem").await?;
         if let Some(ty) = sem.ty() {

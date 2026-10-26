@@ -124,7 +124,7 @@ Each definition looks like:
 Fields:
 
 - definition ids are implicit: the concatenated line order across pages `0..pages-1` is the
-  definition index, and the root definition is the last emitted record
+  definition index. Child references point to earlier definitions; the root is last
 - `m`: metadata for the node or child edge when present
 - `s`: structured Miniconf semantics when present in the linked `miniconf` schema
 - `i`: internal-node shape when present

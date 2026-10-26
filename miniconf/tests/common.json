@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/tree-12",
+  "default": {
+    "serial": 4660,
+    "control": {
+      "enabled": true,
+      "mode": "Run"
+    },
+    "output": {
+      "dac": [
+        1024,
+        1024
+      ],
+      "attenuation": [
+        0,
+        0
+      ]
+    },
+    "auxiliary": {
+      "dac": [
+        512,
+        2048
+      ],
+      "attenuation": [
+        -6,
+        -12
+      ]
+    },
+    "calibration": {
+      "offset": -3,
+      "slope": 12
+    }
+  },
+  "$defs": {
+    "Mode": {
+      "oneOf": [
+        {
+          "const": "Standby"
+        },
+        {
+          "const": "Run"
+        }
+      ]
+    },
+    "tree-0": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "tree-kind": "leaf"
+    },
+    "tree-1": {
+      "type": "boolean",
+      "tree-kind": "leaf"
+    },
+    "tree-2": {
+      "$ref": "#/$defs/Mode",
+      "tree-kind": "leaf"
+    },
+    "tree-3": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/tree-1"
+        },
+        "mode": {
+          "$ref": "#/$defs/tree-2"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "mode"
+      ],
+      "tree-kind": "named",
+      "tree-node-meta": {
+        "typename": "Control"
+      }
+    },
+    "tree-4": {
+      "type": "integer",
+      "format": "uint16",
+      "minimum": 0,
+      "maximum": 65535,
+      "tree-kind": "leaf"
+    },
+    "tree-5": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tree-4"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "tree-kind": "homogeneous"
+    },
+    "tree-6": {
+      "type": "integer",
+      "format": "int16",
+      "minimum": -32768,
+      "maximum": 32767,
+      "tree-kind": "leaf"
+    },
+    "tree-7": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tree-6"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "tree-kind": "homogeneous"
+    },
+    "tree-8": {
+      "type": "object",
+      "properties": {
+        "dac": {
+          "$ref": "#/$defs/tree-5",
+          "tree-edge-meta": {
+            "max": "4095"
+          }
+        },
+        "attenuation": {
+          "$ref": "#/$defs/tree-7",
+          "tree-edge-meta": {
+            "unit": "dB"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "dac",
+        "attenuation"
+      ],
+      "tree-kind": "named",
+      "tree-node-meta": {
+        "typename": "Output"
+      }
+    },
+    "tree-9": {
+      "type": "integer",
+      "format": "int32",
+      "tree-kind": "leaf"
+    },
+    "tree-10": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "$ref": "#/$defs/tree-9"
+        },
+        "slope": {
+          "$ref": "#/$defs/tree-6",
+          "tree-edge-meta": {
+            "unit": "ppm"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "slope"
+      ],
+      "tree-kind": "named",
+      "tree-node-meta": {
+        "typename": "Calibration"
+      },
+      "tree-maybe-absent": true
+    },
+    "tree-11": {
+      "type": "number",
+      "format": "float",
+      "tree-kind": "leaf",
+      "tree-maybe-absent": true
+    },
+    "tree-12": {
+      "type": "object",
+      "properties": {
+        "serial": {
+          "$ref": "#/$defs/tree-0",
+          "tree-edge-meta": {
+            "doc": "Hardware serial number."
+          }
+        },
+        "control": {
+          "$ref": "#/$defs/tree-3"
+        },
+        "output": {
+          "$ref": "#/$defs/tree-8",
+          "tree-edge-meta": {
+            "doc": "Main output bank."
+          }
+        },
+        "auxiliary": {
+          "$ref": "#/$defs/tree-8",
+          "tree-edge-meta": {
+            "doc": "Auxiliary output bank."
+          }
+        },
+        "calibration": {
+          "$ref": "#/$defs/tree-10",
+          "tree-edge-meta": {
+            "doc": "Factory calibration for the temperature measurement."
+          }
+        },
+        "temp": {
+          "$ref": "#/$defs/tree-11",
+          "tree-edge-meta": {
+            "unit": "°C"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "serial",
+        "control",
+        "output",
+        "auxiliary"
+      ],
+      "tree-kind": "named",
+      "tree-node-meta": {
+        "typename": "Settings"
+      }
+    }
+  }
+}

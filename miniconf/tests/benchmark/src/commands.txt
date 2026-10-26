@@ -9,6 +9,10 @@
 /output/dac/1=5000; /output/dac/1;
 /output/attenuation/0=-9; /output/attenuation/1=7;
 /output/attenuation/0; /output/attenuation/1;
+/auxiliary/dac/0; /auxiliary/dac/1;
+/auxiliary/attenuation/0; /auxiliary/attenuation/1;
+/auxiliary/dac/0=4096; /auxiliary/dac/0;
+/auxiliary/dac/0=99; /auxiliary/dac/0; /output/dac/0;
 /calibration/offset; /calibration/slope;
 /calibration/offset=-100; /calibration/slope=13;
 /calibration/offset; /calibration/slope;

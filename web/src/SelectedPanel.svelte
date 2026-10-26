@@ -2,7 +2,7 @@
 
 <script lang="ts">
   import { tick } from "svelte";
-  import { displayPath } from "./lib/schema";
+  import { describeSemantics, displayPath } from "./lib/schema";
   import Metadata from "./Metadata.svelte";
   import type { ViewNode } from "./lib/tree-state";
 
@@ -33,6 +33,7 @@
   }: Props = $props();
 
   let leaf = $derived(node?.kind === "leaf");
+  let extraSemantics = $derived(describeSemantics(node?.sem).extra);
   let textarea = $state<HTMLTextAreaElement>();
   export async function focus() {
     await tick();
@@ -99,13 +100,12 @@
   {/if}
   <section class="schema-body" aria-label="Schema">
     {#if node}<div class="meta">
-        Kind: {node.kind}{#if node.kind === "homogeneous"}
-          (0..{node.children.length}){/if}
+        {node.summary}
       </div>{/if}
-    {#if node?.sem !== undefined}<Metadata
+    {#if extraSemantics !== undefined}<Metadata
         label="Semantics"
         heading={false}
-        value={node.sem}
+        value={extraSemantics}
       />{/if}
     {#if node?.edge !== undefined}<Metadata
         label="Edge metadata"

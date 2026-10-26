@@ -54,30 +54,32 @@ pub(super) fn exchange(
             out,
         )?,
         _ => {
-            let (array, index) = path
-                .strip_prefix("/output/")
+            let (bank, path) = path
+                .strip_prefix('/')
                 .ok_or(Error::Path)?
                 .split_once('/')
                 .ok_or(Error::Path)?;
+            let output = match bank {
+                "output" => &mut settings.output,
+                "auxiliary" => &mut settings.auxiliary,
+                _ => return Err(Error::Path),
+            };
+            let (array, index) = path.split_once('/').ok_or(Error::Path)?;
             let index: usize = index.parse().map_err(|_| Error::Path)?;
             match array {
                 "dac" => {
-                    let mut next = settings.output.dac;
+                    let mut next = output.dac;
                     let len = value(next.get_mut(index).ok_or(Error::Path)?, input, out)?;
                     if input.is_some() {
                         if next.iter().any(|v| *v > 4095) {
                             return Err(Error::Access);
                         }
-                        settings.output.dac = next;
+                        output.dac = next;
                     }
                     len
                 }
                 "attenuation" => value(
-                    settings
-                        .output
-                        .attenuation
-                        .get_mut(index)
-                        .ok_or(Error::Path)?,
+                    output.attenuation.get_mut(index).ok_or(Error::Path)?,
                     input,
                     out,
                 )?,
