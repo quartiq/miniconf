@@ -191,15 +191,22 @@ fn path_completion_preserves_the_suffix() {
 
 #[test]
 fn schema_inspection_needs_no_settings_instance() {
+    #[derive(miniconf::Tree)]
+    #[tree(meta(typename))]
+    struct Example {
+        #[tree(meta(unit = "V"))]
+        value: Option<u16>,
+    }
     let mut output = Vec::new();
-    block_on(write_schema(
-        &mut output,
-        common::Settings::SCHEMA,
-        "/calibration",
-        usize::MAX,
-    ))
-    .unwrap();
-    assert_eq!(output, b"/calibration [named] [sem maybe_absent] [edge doc=\"Factory calibration for the temperature measurement.\"] [node typename=\"Calibration\"]\r\n  offset [leaf] [sem ty=i32] [edge unit=\"mK\"]\r\n  slope [leaf] [sem ty=i16] [edge unit=\"ppm\"]\r\n");
+    block_on(write_schema(&mut output, Example::SCHEMA, "", usize::MAX)).unwrap();
+    assert_eq!(
+        output,
+        concat!(
+            "(root) [named] [node typename=\"Example\"]\r\n",
+            "  value [leaf] [sem ty=u16 maybe_absent] [edge unit=\"V\"]\r\n",
+        )
+        .as_bytes()
+    );
     output.clear();
     block_on(write_schema(
         &mut output,
@@ -250,12 +257,13 @@ fn inspect_values_and_errors() {
     env_logger::builder().is_test(true).try_init().unwrap();
     defmt2log::init_from_current_exe();
     block_on(async {
-        let settings = common::Settings::new();
+        let mut settings = common::Settings::new();
+        settings.output.dac = [123, 456];
         let mut output = Vec::new();
         write_values(&mut output, &settings, "/output/dac", &mut [0; 32])
             .await
             .unwrap();
-        assert_eq!(output, b"/output/dac/0: 1024\r\n/output/dac/1: 1024\r\n");
+        assert_eq!(output, b"/output/dac/0: 123\r\n/output/dac/1: 456\r\n");
         output.clear();
         write_values(&mut output, &settings, "/missing", &mut [0; 32])
             .await
@@ -295,6 +303,7 @@ fn shared_settings_during_output() {
 
     block_on(async {
         let settings = RefCell::new(common::Settings::new());
+        settings.borrow_mut().output.dac = [123, 456];
         let mut reply = std::pin::pin!(async {
             let mut output = Slow(Vec::new());
             let paths = NodeIter::<
@@ -320,7 +329,7 @@ fn shared_settings_during_output() {
         json_core::set(&mut *settings.borrow_mut(), "/output/dac/1", b"2048").unwrap();
         assert_eq!(
             reply.await,
-            b"/output/dac/0: 1024\r\n/output/dac/1: 2048\r\n"
+            b"/output/dac/0: 123\r\n/output/dac/1: 2048\r\n"
         );
     });
 }

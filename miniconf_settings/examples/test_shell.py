@@ -11,14 +11,15 @@ import time
 binary = sys.argv[1]
 result = subprocess.run(
     [binary],
-    input="set /output/dac/0 2048\nget /output/dac/0\nschema /output\n",
+    input="get /output/dac/0\nset /output/dac/0 2048\nget /output/dac/0\nschema /output\n",
     text=True,
     capture_output=True,
     check=True,
     timeout=30,
 )
-assert result.stdout.startswith("Set.\n/output/dac/0: 2048\n")
-schema = result.stdout.split("\n", 2)[2]
+initial, written, readback, schema = result.stdout.split("\n", 3)
+assert written == "Set."
+assert readback == "/output/dac/0: 2048"
 assert schema.startswith("/output [named]")
 master, slave = pty.openpty()
 original = termios.tcgetattr(slave)
@@ -48,7 +49,7 @@ def expect(expected):
 
 try:
     expect(b"Tab completes; repeat to list matches.\r\n")
-    expect(b"/output/dac/0: 1024\r\n")
+    expect(f"{initial}\r\n".encode())
     expect(b"> \x1b[1;3H")
     os.write(master, b"schema /out\t\r")
     expect(schema.replace("\n", "\r\n").encode())

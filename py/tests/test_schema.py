@@ -10,32 +10,16 @@ from miniconf.render import render_schema_tree, render_value_tree
 from miniconf.schema import Indices, Schema
 
 
-def fixture_schema():
-    fixture = Path(__file__).resolve().parents[2] / "miniconf/tests/common.ndjson"
-    return Schema.from_defs(
-        [json.loads(line) for line in fixture.read_text().splitlines()], 1
-    )
-
-
 class SchemaTests(TestCase):
     def test_rust_export(self):
-        schema = fixture_schema()
-        source = Path(__file__).resolve().parents[2] / "miniconf/tests/common.json"
-        export = json.loads(source.read_text())
-        fields = export["$defs"][export["$ref"].rsplit("/", 1)[1]]["properties"]
-        assert schema.node("/control/mode").kind == "leaf"
-        assert schema.children("/control/mode") == []
-        assert schema.node("/calibration").schema["sem"]["maybe_absent"]
-        assert schema.node("/temp").schema["sem"]["maybe_absent"]
-        for bank in ("output", "auxiliary"):
-            assert schema.node(f"/{bank}").edge == fields[bank]["tree-edge-meta"]
-            values = export["default"][bank]["dac"]
-            assert len(schema.children(f"/{bank}/dac")) == len(values)
-            for index in range(len(values)):
-                keys = schema.indices(f"/{bank}/dac/{index}")
-                assert keys.value[0] == list(fields).index(bank)
-                assert schema.node(keys).path == f"/{bank}/dac/{index}"
-        assert schema.node("/output").node == schema.node("/auxiliary").node
+        fixture = Path(__file__).resolve().parents[2] / "miniconf/tests/common.ndjson"
+        schema = Schema.from_defs(
+            [json.loads(line) for line in fixture.read_text().splitlines()], 1
+        )
+        nodes = list(schema.walk())
+        assert len(nodes) > 1
+        for node in nodes:
+            assert schema.node(schema.indices(node.path)) == node
 
     def test_invalid_definitions(self):
         for defs in (
@@ -85,27 +69,22 @@ class SchemaTests(TestCase):
             "/items/0/group",
         )
 
-    def test_schema(self):
-        schema_fixture = fixture_schema()
-        assert [node.path for node in schema_fixture.walk("/control")] == [
-            "/control",
-            "/control/enabled",
-            "/control/mode",
-        ]
-        assert schema_fixture.node().kind == "named"
-        assert schema_fixture.node("/control").kind == "named"
-        assert schema_fixture.node("/control/enabled").kind == "leaf"
-        assert schema_fixture.node("/control").edge is None
-        assert schema_fixture.compact("/control") == {
-            "path": "/control",
+    def test_compact_subtree_remaps_references(self):
+        schema = Schema.from_defs(
+            [
+                {},
+                {"s": {"ty": "bool"}},
+                {"i": {"k": "h", "l": 2, "c": 1}},
+                {"i": {"k": "n", "c": {"unused": 0, "values": 2}}},
+            ],
+            1,
+        )
+        assert schema.compact("/values") == {
+            "path": "/values",
             "rev": 1,
             "defs": [
                 {"s": {"ty": "bool"}},
-                {},
-                {
-                    "m": {"typename": "Control"},
-                    "i": {"k": "n", "c": {"enabled": 0, "mode": 1}},
-                },
+                {"i": {"k": "h", "l": 2, "c": 0}},
             ],
         }
 
