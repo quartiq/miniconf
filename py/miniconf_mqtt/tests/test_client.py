@@ -410,6 +410,13 @@ class ClientTests(IsolatedAsyncioTestCase):
     async def test_listener_consumes_replay_before_suback(self):
         transport = device_transport()
         release = asyncio.Event()
+        consumed = asyncio.Event()
+
+        async def replay():
+            async for item in transport.stream():
+                yield item
+                if str(item.topic) == "test/schema/0":
+                    consumed.set()
 
         async def subscribing(topic, **kwargs):
             codes = await transport.subscribed(topic, **kwargs)
@@ -417,20 +424,13 @@ class ClientTests(IsolatedAsyncioTestCase):
             return codes
 
         transport.subscribe.side_effect = subscribing
+        transport.messages = replay()
         async with Miniconf(transport, "test") as client:
-            consumed = asyncio.Event()
-            handle = client._handle_message
-
-            def received(item):
-                handle(item)
-                if client._schema_pages:
-                    consumed.set()
-
-            with patch.object(client, "_handle_message", side_effect=received):
-                await asyncio.wait_for(consumed.wait(), 1)
-                self.assertFalse(client._ready.is_set())
-                release.set()
-                await client.schema()
+            pending = asyncio.create_task(client.schema())
+            await asyncio.wait_for(consumed.wait(), 1)
+            self.assertFalse(pending.done())
+            release.set()
+            self.assertEqual((await pending).node("/value").kind, "leaf")
 
     async def test_missing_initial_replay_recovers_on_next_operation(self):
         transport = device_transport()
@@ -491,26 +491,12 @@ class ClientTests(IsolatedAsyncioTestCase):
         page = transport.retained[1]
         transport.retained = transport.retained[:1]
         async with Miniconf(transport, "test") as client:
-            waiting = asyncio.Event()
-            readers = 0
-            wait = client._schema_changed.wait
-
-            async def wait_for_page():
-                nonlocal readers
-                readers += 1
-                if readers == 2:
-                    waiting.set()
-                await wait()
-
-            with patch.object(
-                client._schema_changed, "wait", side_effect=wait_for_page
-            ):
-                first = asyncio.create_task(client.schema())
-                second = asyncio.create_task(client.schema())
-                await asyncio.wait_for(waiting.wait(), 1)
-                transport.incoming.put_nowait(page)
-                first, second = await asyncio.gather(first, second)
-            self.assertIs(first, second)
+            first = asyncio.create_task(client.schema())
+            second = asyncio.create_task(client.schema())
+            await transport.wait_subscription("test/schema/#")
+            transport.incoming.put_nowait(page)
+            for schema in await asyncio.gather(first, second):
+                self.assertEqual(schema.node("/value").kind, "leaf")
             transport.subscribe.assert_awaited_once()
 
     async def test_schema_ignores_unretained_pages_and_tombstones(self):
