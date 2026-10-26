@@ -104,9 +104,33 @@ def test_rust_export_contract():
         for previous, token in zip(tokens, tokens[1:]):
             if previous.type == "paragraph_open" and token.type == "inline":
                 assert page_text.count(" ".join(token.content.split())) == 1
+    tokens = MarkdownIt().enable("table").parse(text)
     for bank in ("output", "auxiliary"):
-        assert inv.entries[f"/{bank}"].edge["doc"] in text
-        assert all(f"`{value}`" in text for value in exported["default"][bank]["dac"])
+        start = next(
+            i
+            for i, token in enumerate(tokens)
+            if token.type == "heading_open" and tokens[i + 1].content == f"`{bank}`"
+        )
+        stop = next(
+            i for i in range(start + 1, len(tokens)) if tokens[i].type == "heading_open"
+        )
+        section = tokens[start:stop]
+        assert inv.entries[f"/{bank}"].edge["doc"] in [
+            token.content for token in section if token.type == "inline"
+        ]
+        cells = [
+            child.content
+            for previous, token in zip(section, section[1:])
+            if previous.type == "td_open" and token.type == "inline"
+            for child in token.children
+            if child.type == "code_inline"
+        ]
+        assert cells == [
+            cell
+            for field, values in exported["default"][bank].items()
+            for index, value in enumerate(values)
+            for cell in (f"{field}/{index}", json.dumps(value))
+        ]
     assert "absent" in text
     page = Page(MarkdownIt().enable("table").render(text))
     assert all(link[1:] in page.ids for link in page.links if link.startswith("#"))
