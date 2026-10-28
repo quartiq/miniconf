@@ -24,7 +24,7 @@ For a first release, keep the chosen manifest version and run
 `cargo release replace -p <crate> --execute` instead, then commit the changelog.
 After merging, follow [First Rust publication](#first-rust-publication).
 
-**Python:** update `py/pyproject.toml` and `py/CHANGELOG.md`, then commit.
+**Python:** update `py/miniconf_mqtt/pyproject.toml` and `py/miniconf_mqtt/CHANGELOG.md`, then commit.
 
 Push and open the PR:
 
@@ -57,7 +57,7 @@ The push step also pushes the current branch. Do not run `cargo release publish`
 Release changed derive, core, then transport crates, **one tag at a time**.
 Wait for each dependency to become available in the registry before proceeding.
 
-**Python:** substitute the version from `py/pyproject.toml`:
+**Python:** substitute the version from `py/miniconf_mqtt/pyproject.toml`:
 
 ```sh
 git tag -a miniconf-mqtt-v<version> -m "Release miniconf-mqtt <version>"

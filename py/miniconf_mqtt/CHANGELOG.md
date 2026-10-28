@@ -8,19 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+* Import the Python client as `miniconf_mqtt` and run it as `miniconf-mqtt`.
+  Import discovery and pruning from `operations`, and exceptions from `errors`.
+  Replace `Schema.from_defs(defs, rev)` with `Schema(defs, rev)`.
+
 ### Fixed
 
 * Successful CLI SETs and prunes are silent; handled errors omit tracebacks and ambiguous discovery lists matching prefixes.
 * Validate retained schema replay against the advertised revision and reject malformed schema definitions before use.
-* Render nested homogeneous schema children once.
-* Show indexed schema lengths as `len=N` and homogeneous child templates as `{index}`.
-* Show root leaf settings in value trees and reject noncanonical array indices in schema paths.
-* Reduce CLI startup time and MQTT message latency with batched subscriptions and TCP_NODELAY.
+* Correct rendering of nested homogeneous children and root leaves; reject
+  noncanonical array indices in schema paths.
+* Reduce CLI startup time and MQTT message latency.
 * Schema-aware settings watches now raise an error when the device goes offline or its
   publication manifest changes, even when no settings arrive.
 
 ### Added
 
+* `discover_one()` selects a unique device; discovery now supports the MQTT
+  multi-level prefix wildcard `#`.
+* `TemporaryChanges` restores temporary leaf writes on scope exit.
 * `subscribe()` and `--subscribe` stream settings independently of SET replies.
 
 ## [v0.21.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...miniconf-mqtt-v0.21.0) - 2026-09-22

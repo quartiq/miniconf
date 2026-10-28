@@ -17,23 +17,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  reference:
+  python:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [miniconf_mqtt, miniconf_doc]
+    defaults:
+      run:
+        working-directory: py/${{ matrix.package }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - run: python -m pip install './miniconf-doc[dev]'
-      - run: python -m ruff format --check miniconf-doc
-      - run: python -m ruff check miniconf-doc
-      - run: python -m compileall -q miniconf-doc
-      - run: python -m build miniconf-doc
-      - run: python -m pip install --force-reinstall --no-deps miniconf-doc/dist/*.whl
-      - run: python -I -m pytest -q -n 8 miniconf-doc/tests
+      - run: python -m pip install build '.[dev]'
+      - run: python -m ruff format --check .
+      - run: python -m ruff check .
+      - run: python -m compileall -q src tests
+      - run: python -m build
+      - run: python -m pip install --force-reinstall --no-deps dist/*.whl
+      - run: python -I -m pytest -q -n 8 tests
       - name: Check installed command outside the checkout
         working-directory: ${{ runner.temp }}
-        run: python -I -m miniconf_doc --help
+        run: python -I -m ${{ matrix.package }} --help
 
   style:
     runs-on: ubuntu-latest
@@ -46,27 +52,6 @@ jobs:
 
       - run: cargo fmt -- --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: py/pyproject.toml
-      - name: Install Python tools
-        working-directory: py
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,test]"
-
-      - name: Check Python
-        working-directory: py
-        run: python -m ruff format --check miniconf tests test.py
-      - working-directory: py
-        run: python -m ruff check miniconf tests test.py
-      - working-directory: py
-        run: python -m compileall miniconf tests test.py
-      - working-directory: py
-        run: python -m unittest discover -s tests
 
   documentation:
     runs-on: ubuntu-latest
@@ -121,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Start Broker
-        if: ${{ !startsWith(matrix.command, 'cargo test -p miniconf --no-default-features') }}
+        if: matrix.command == 'cargo test --all-features'
         run: |
           sudo apt-get update
           sudo apt-get install -y mosquitto mosquitto-clients
@@ -133,24 +118,11 @@ jobs:
         with:
           key: ${{ matrix.command }}
       - run: ${{ matrix.command }}
+      - name: Broker integration
+        if: matrix.command == 'cargo test --all-features'
+        run: cargo test -p miniconf_mqtt --all-features --test integration -- --ignored --test-threads=8
         env:
           BROKER: 127.0.0.1:1883
-
-  package:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: py/pyproject.toml
-      - name: Build Python package
-        working-directory: py
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install build
-          python -m build
 
   test-embedded:
     runs-on: ubuntu-latest
@@ -187,4 +159,4 @@ jobs:
           sudo service mosquitto start
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: sh py/test.sh
+      - run: sh py/miniconf_mqtt/test.sh

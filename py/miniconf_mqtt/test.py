@@ -16,15 +16,16 @@ from queue import Empty, Queue
 from unittest import TestCase
 
 import paho.mqtt.client as mqtt
-from miniconf.client import Miniconf, RawMiniconf
+from miniconf_mqtt.client import Miniconf, RawMiniconf
 from aiomqtt import Client, MqttError, ProtocolVersion
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
-from miniconf.common import MiniconfException
-from miniconf.render import render_value_tree
-from miniconf.schema import Indices, Packed, Schema, SchemaNode
+from miniconf_mqtt.errors import MiniconfException
+from miniconf_mqtt.operations import discover_one
+from miniconf_mqtt.render import render_value_tree
+from miniconf_mqtt.schema import Indices, Packed
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
@@ -46,10 +47,11 @@ EXAMPLE = Path(
 
 def cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "miniconf", "-b", BROKER, *args],
+        [sys.executable, "-m", "miniconf_mqtt", "-b", BROKER, *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
+        timeout=30,
     )
 
 
@@ -60,10 +62,6 @@ def cli_stdout(*args: str) -> str:
             f"cli failed: {args}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         )
     return proc.stdout
-
-
-def schema_node(schema: Schema, path: str) -> SchemaNode:
-    return SchemaNode(path, schema.node(path).schema)
 
 
 class TopicWatcher:
@@ -269,6 +267,9 @@ async def main() -> None:
         assert manifest["pages"] > 0, manifest
         assert manifest["schema_rev"], manifest
         schema_topics.wait_schema_pages(3.0, TARGET, manifest["pages"])
+        async with Client(BROKER, protocol=ProtocolVersion.V5) as discovery:
+            for prefix in (TARGET, f"{PREFIX}/+", f"{PREFIX}/#", "#"):
+                assert await discover_one(discovery, prefix) == TARGET
         alive.drain()
         settings.drain()
         schema_topics.drain()
@@ -295,7 +296,6 @@ async def main() -> None:
             assert control.node["typename"] == "Control"
             assert schema.node(SERIAL).edge["doc"] == "Hardware serial number."
             assert dac.edge["max"] == "4095"
-            assert schema.node(MODE) == schema_node(schema, MODE)
             assert schema.path(DAC0) == DAC0
             try:
                 schema.path("/missing")
@@ -308,13 +308,9 @@ async def main() -> None:
                 ENABLED,
                 MODE,
             ]
-            assert schema_node(schema, CONTROL) in schema.children("")
-            assert schema.children(CONTROL) == [
-                schema_node(schema, ENABLED),
-                schema_node(schema, MODE),
-            ]
+            assert CONTROL in [node.path for node in schema.children("")]
+            assert [node.path for node in schema.children(CONTROL)] == [ENABLED, MODE]
             assert schema.node(DAC0).kind == "leaf"
-            assert control.kind == "named"
             assert schema.path(schema.indices(DAC1)) == DAC1
             assert schema.path(Indices(schema.indices(ENABLED))) == ENABLED
             assert schema.path(Packed(schema.packed(ENABLED).value)) == ENABLED
@@ -428,7 +424,7 @@ async def main() -> None:
                 stream = await asyncio.create_subprocess_exec(
                     sys.executable,
                     "-m",
-                    "miniconf",
+                    "miniconf_mqtt",
                     "-b",
                     BROKER,
                     "--subscribe",

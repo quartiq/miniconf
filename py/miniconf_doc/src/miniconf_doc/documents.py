@@ -3,6 +3,7 @@
 import difflib
 import re
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -44,8 +45,8 @@ class Document:
 
 
 class Documents:
-    def __init__(self, *roots: Path):
-        self.documents = []
+    def __init__(self, *roots: Path, documents: Iterable[Document] = ()):
+        self.documents = list(documents)
         sources = set()
         for root in roots:
             if not root.is_dir():

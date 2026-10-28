@@ -12,9 +12,10 @@ from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
 from paho.mqtt.reasoncodes import ReasonCode
 
-from miniconf.client import Miniconf, RawMiniconf
-from miniconf.common import RETAINED, _Deadline, MiniconfException, mqtt_client
-from miniconf._ops import discover
+from miniconf_mqtt.client import Miniconf, RawMiniconf
+from miniconf_mqtt.errors import MiniconfException
+from miniconf_mqtt.mqtt import RETAINED, _Deadline, mqtt_client
+from miniconf_mqtt.operations import discover
 
 
 def message(topic, payload=b"1", **properties):
@@ -114,7 +115,7 @@ class ClientTests(IsolatedAsyncioTestCase):
         for options in ([], [keepalive], [keepalive, override]):
             with (
                 self.subTest(options=options),
-                patch("miniconf.common.Client") as client,
+                patch("miniconf_mqtt.mqtt.Client") as client,
             ):
                 transport = mqtt_client(
                     "[::1]:1884", socket_options=iter(options), username="reader"
@@ -195,6 +196,23 @@ class ClientTests(IsolatedAsyncioTestCase):
         )
         with self.assertRaises(TimeoutError):
             await discover(Transport(), "test/+", timeout=0.01, abs_timeout=1)
+
+    async def test_discovery_matches_device_prefixes(self):
+        payload = b'{"proto":1,"epoch":1,"schema_rev":1,"pages":1}'
+        peers = ("app", "app/one", "app/one/nested", "other")
+        retained = [message(f"{peer}/alive", payload) for peer in peers]
+        retained.append(message("app/settings/value", payload))
+        for prefix, expected in (
+            ("app", ["app"]),
+            ("app/+", ["app/one"]),
+            ("app/#", list(peers[:3])),
+            ("#", list(peers)),
+        ):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(
+                    list(await discover(Transport(retained), prefix, abs_timeout=0.01)),
+                    expected,
+                )
 
     async def test_immediate_close(self):
         transport = Transport()
@@ -306,8 +324,9 @@ class ClientTests(IsolatedAsyncioTestCase):
 
         transport.publish.side_effect = publish
         async with RawMiniconf(transport, "test") as client:
-            with self.assertRaisesRegex(MiniconfException, "Missing response code"):
+            with self.assertRaises(MiniconfException) as error:
                 await client.set("/value", 1, timeout=1)
+            self.assertEqual(error.exception.code, "Protocol")
             transport.publish.side_effect = None
             await client.set("/value", 2, response=False, timeout=1)
 
@@ -392,6 +411,13 @@ class ClientTests(IsolatedAsyncioTestCase):
     async def test_listener_consumes_replay_before_suback(self):
         transport = device_transport()
         release = asyncio.Event()
+        consumed = asyncio.Event()
+
+        async def replay():
+            async for item in transport.stream():
+                yield item
+                if str(item.topic) == "test/schema/0":
+                    consumed.set()
 
         async def subscribing(topic, **kwargs):
             codes = await transport.subscribed(topic, **kwargs)
@@ -399,20 +425,17 @@ class ClientTests(IsolatedAsyncioTestCase):
             return codes
 
         transport.subscribe.side_effect = subscribing
+        transport.messages = replay()
         async with Miniconf(transport, "test") as client:
-            consumed = asyncio.Event()
-            handle = client._handle_message
-
-            def received(item):
-                handle(item)
-                if client._schema_pages:
-                    consumed.set()
-
-            with patch.object(client, "_handle_message", side_effect=received):
+            pending = asyncio.create_task(client.schema())
+            try:
                 await asyncio.wait_for(consumed.wait(), 1)
-                self.assertFalse(client._ready.is_set())
+                self.assertFalse(pending.done())
                 release.set()
-                await client.schema()
+                self.assertEqual((await pending).node("/value").kind, "leaf")
+            finally:
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
     async def test_missing_initial_replay_recovers_on_next_operation(self):
         transport = device_transport()
@@ -430,16 +453,14 @@ class ClientTests(IsolatedAsyncioTestCase):
         async with Miniconf(transport, "test") as client:
             await client._load_manifest(_Deadline(1))
             deadline = _Deadline(1)
-            from miniconf.schema import Schema
-
-            parse = Schema.from_defs
+            from miniconf_mqtt.schema import Schema
 
             def slow_parse(*args):
-                result = parse(*args)
+                result = Schema(*args)
                 deadline.end = 0
                 return result
 
-            with patch("miniconf.client.Schema.from_defs", side_effect=slow_parse):
+            with patch("miniconf_mqtt.client.Schema", side_effect=slow_parse):
                 with self.assertRaises(TimeoutError):
                     await client._load_schema(deadline)
             self.assertIsNone(client._schema)
@@ -475,26 +496,12 @@ class ClientTests(IsolatedAsyncioTestCase):
         page = transport.retained[1]
         transport.retained = transport.retained[:1]
         async with Miniconf(transport, "test") as client:
-            waiting = asyncio.Event()
-            readers = 0
-            wait = client._schema_changed.wait
-
-            async def wait_for_page():
-                nonlocal readers
-                readers += 1
-                if readers == 2:
-                    waiting.set()
-                await wait()
-
-            with patch.object(
-                client._schema_changed, "wait", side_effect=wait_for_page
-            ):
-                first = asyncio.create_task(client.schema())
-                second = asyncio.create_task(client.schema())
-                await asyncio.wait_for(waiting.wait(), 1)
-                transport.incoming.put_nowait(page)
-                first, second = await asyncio.gather(first, second)
-            self.assertIs(first, second)
+            first = asyncio.create_task(client.schema())
+            second = asyncio.create_task(client.schema())
+            await transport.wait_subscription("test/schema/#")
+            transport.incoming.put_nowait(page)
+            for schema in await asyncio.gather(first, second):
+                self.assertEqual(schema.node("/value").kind, "leaf")
             transport.subscribe.assert_awaited_once()
 
     async def test_schema_ignores_unretained_pages_and_tombstones(self):

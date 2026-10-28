@@ -71,13 +71,22 @@ quiet after the last accepted value, then unsubscribes. Stale topics, missing `a
 payloads, and invalid JSON are ignored. Applying values can trigger normal setter side effects.
 
 Use it only before the first Miniconf MQTT startup of a device process. On a device reconnect or
-network glitch, keep the live settings in RAM authoritative and call
-`miniconf.startup(...)`; it reads the connect event from the live connection:
+network glitch, keep the live settings in RAM authoritative.
+`miniconf.startup(...)` reads the connect event from the live connection:
 
 - `ConnectEvent::Connected`: publish schema/settings, subscribe to `set/#`, and publish `alive`
 - `ConnectEvent::Reconnected`: the broker resumed the MQTT session. If startup previously completed,
   Miniconf republishes only `alive`; otherwise it restarts schema/settings synchronization
   from current settings
+
+MQTT session recovery only replays publications already admitted to that session.
+An accepted leaf write can still have a mirror or reply waiting in `Service`.
+If that work was dropped or failed, use `Startup::connected(&mut miniconf)` even
+for `ConnectEvent::Reconnected`, then drive startup normally. This republishes
+current settings before `alive`; it does not recreate lost request replies.
+In particular, use this path when constructing a new `Service` after each
+connection error or abandoning an interrupted `serve()` call. A request timeout
+does not imply that its write was rolled back.
 
 ## Protocol details
 

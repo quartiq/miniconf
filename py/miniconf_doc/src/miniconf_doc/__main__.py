@@ -11,7 +11,7 @@ from .schema import Inventory
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="miniconf-doc", description=__doc__)
     commands = parser.add_subparsers(dest="operation", required=True)
     for operation in ("build", "check", "diff"):
         command = commands.add_parser(operation)
@@ -60,7 +60,7 @@ def main():
             else:
                 sys.stdout.write(markdown)
     except (ValueError, KeyError, OSError) as error:
-        parser.exit(1, f"miniconf_doc: {error}\n")
+        parser.exit(1, f"miniconf-doc: {error}\n")
 
 
 if __name__ == "__main__":

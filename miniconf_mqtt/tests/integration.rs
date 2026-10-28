@@ -62,8 +62,11 @@ struct Settings {
     nested: Nested,
 }
 
-fn broker_addr() -> Option<SocketAddr> {
-    Some(std::env::var(BROKER_ADDR_ENV).ok()?.parse().unwrap())
+fn broker_addr() -> SocketAddr {
+    std::env::var(BROKER_ADDR_ENV)
+        .expect("set BROKER=ip:port to run broker tests")
+        .parse()
+        .expect("BROKER must be an IP address and port")
 }
 
 fn unique(label: &str) -> String {
@@ -156,12 +159,10 @@ fn user_property<'a>(inbound: &'a InboundPublish<'a>, name: &str) -> Option<&'a 
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn miniconf_publications_advertise_utf8_payloads() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("utf8-payload");
     let mut observer_session = Session::new(config());
@@ -272,12 +273,10 @@ async fn miniconf_publications_advertise_utf8_payloads() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn miniconf_set_stays_internal() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("prefix");
     let mut publisher_session = Session::new(config());
@@ -313,12 +312,10 @@ async fn miniconf_set_stays_internal() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn retained_load_applies_only_auth_leaf_values() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("retained-load");
     let mut seeder_session = Session::new(config());
@@ -417,12 +414,10 @@ async fn retained_load_applies_only_auth_leaf_values() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn service_accepts_no_auth_settings_compat_ingress() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("settings-compat");
     let mut publisher_session = Session::new(config());
@@ -540,12 +535,10 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn other_topics_are_unhandled() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("prefix");
     let other_topic = format!("{prefix}/rpc/in");
@@ -600,12 +593,10 @@ async fn other_topics_are_unhandled() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn startup_with_large_schema_completes() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("activation");
     let (mut miniconf, mut session) =
@@ -629,12 +620,10 @@ async fn startup_with_large_schema_completes() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn absent_subtree_clears_authoritative_leaves() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
     let prefix = unique("absent");
     let mut observer_session = Session::new(config());
     let mut observer = wait_session(&mut observer_session, connect_addr(addr).await.unwrap()).await;
@@ -683,6 +672,7 @@ async fn absent_subtree_clears_authoritative_leaves() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn startup_and_service_resume_after_step_cancellation() {
     use std::{
         cell::Cell,
@@ -694,10 +684,7 @@ async fn startup_and_service_resume_after_step_cancellation() {
     };
     use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("startup-cancel");
     let (mut miniconf, mut session) = Miniconf::<common::Settings>::new(&prefix, config()).unwrap();
@@ -833,12 +820,10 @@ async fn startup_and_service_resume_after_step_cancellation() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn service_accepts_later_sets_while_earlier_response_is_pending() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("queue");
     let mut publisher_session = Session::new(config());
@@ -907,12 +892,10 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn service_rejects_overflow_without_mutating() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
 
     let prefix = unique("queue-overflow");
     let mut publisher_session = Session::new(config());
@@ -1014,12 +997,10 @@ async fn service_rejects_overflow_without_mutating() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn service_rejects_trailing_input_without_a_change() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
     let prefix = unique("finalization");
     let mut publisher_session = Session::new(config());
     let (mut miniconf, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
@@ -1059,12 +1040,10 @@ async fn service_rejects_trailing_input_without_a_change() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn interrupted_startup_restarts_before_using_the_resume_path() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
-        return;
-    };
+    let addr = broker_addr();
     timeout(Duration::from_secs(10), async {
         for cut in ["schema/", "settings/"] {
             let prefix = unique("interrupted-startup");
@@ -1179,11 +1158,10 @@ async fn interrupted_startup_restarts_before_using_the_resume_path() {
 }
 
 #[tokio::test]
+#[ignore = "requires an isolated MQTT broker; set BROKER=ip:port"]
 async fn completed_startup_resumes_after_draining_pending_traffic() {
     init_host_logging();
-    let Some(addr) = broker_addr() else {
-        return;
-    };
+    let addr = broker_addr();
     timeout(Duration::from_secs(5), async {
         let prefix = unique("completed-startup");
         let (mut miniconf, mut session) = Miniconf::<Settings>::new(

@@ -161,6 +161,9 @@ fn locked() {
     json_core::set(&mut s, "/val", b"1").unwrap();
     assert_eq!(s.val, 1);
     json_core::set(&mut s, "/write", b"false").unwrap();
+    assert_eq!(
+        json_core::set(&mut s, "/val", b"2"),
+        Err(ValueError::Access("not writable").into())
+    );
     assert_eq!(s.val, 1);
-    json_core::set(&mut s, "/val", b"1").unwrap_err();
 }

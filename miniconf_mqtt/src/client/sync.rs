@@ -109,6 +109,9 @@ impl Startup {
     ///
     /// Use this after cold-boot [`LoadRetained`] so the retained mirror is republished
     /// authoritatively from the recovered local settings.
+    /// Also use this after losing service follow-ups, even if MQTT resumed its session:
+    /// queued mirrors not yet admitted to MQTT cannot be recovered by packet replay.
+    /// Full startup repairs the mirror from live settings, but does not recreate lost replies.
     pub fn connected<Settings>(miniconf: &mut Miniconf<Settings>) -> Self
     where
         Settings: TreeSchema,

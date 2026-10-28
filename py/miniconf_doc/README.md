@@ -6,12 +6,12 @@ prose adds context. References start at the root; fields supply their context an
 instance defaults.
 
 Requires Python 3.11 or newer. From a Miniconf checkout, install with
-`python -m pip install ./miniconf-doc`.
+`python -m pip install ./py/miniconf_doc`.
 
 ## Example
 
-The [Rust example](../miniconf/examples/reference.rs) exports the schema and
-construction defaults of the [common settings](../miniconf/examples/common.rs)
+The [Rust example](../../miniconf/examples/reference.rs) exports the schema and
+construction defaults of the [common settings](../../miniconf/examples/common.rs)
 used throughout Miniconf's examples. Main and auxiliary outputs share one type,
 with different defaults and field documentation. From the repository root:
 
@@ -26,18 +26,18 @@ by `typename = "Output.dac"`.
 Build the reference:
 
 ```sh
-miniconf_doc build --output /tmp/reference.md /tmp/settings-schema.json miniconf-doc/examples/docs
-miniconf_doc check /tmp/settings-schema.json miniconf-doc/examples/docs
+miniconf-doc build --output /tmp/reference.md /tmp/settings-schema.json py/miniconf_doc/examples/docs
+miniconf-doc check /tmp/settings-schema.json py/miniconf_doc/examples/docs
 ```
 
 For a Python-only preview from the checkout, use the generated
-[common schema](../miniconf/tests/common.json) in place of `/tmp/settings-schema.json`.
+[common schema](../../miniconf/tests/common.json) in place of `/tmp/settings-schema.json`.
 For your own application, export `TreeJsonSchema::new(Some(&settings))?.root`
 and attach `to_json_value(&settings)?` as its `default`, as the Rust example does.
 Use this export before applying `AllowAbsent`.
 
 Pass additional directories to combine shared prose with application-specific
-explanations: `miniconf_doc build schema.json docs/common docs/instrument`.
+explanations: `miniconf-doc build schema.json docs/common docs/instrument`.
 Directories are searched recursively and selected explicitly for each schema.
 Each build uses one schema, independently of its filename or application name.
 
@@ -79,8 +79,8 @@ the source file. Rust API links need explicit URLs.
 ## Reviewing changes
 
 ```sh
-miniconf_doc check schema.json docs
-miniconf_doc diff old-schema.json new-schema.json docs
+miniconf-doc check schema.json docs
+miniconf-doc diff old-schema.json new-schema.json docs
 ```
 
 `check` validates selectors and composition, including unmatched explanations.

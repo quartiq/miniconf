@@ -6,11 +6,13 @@ on:
     branches: [main]
     paths:
       - web/**
+      - miniconf/tests/common.ndjson
       - .github/workflows/web-pages.yml
   pull_request:
     branches: [main, develop]
     paths:
       - web/**
+      - miniconf/tests/common.ndjson
       - .github/workflows/web-pages.yml
 
 permissions:

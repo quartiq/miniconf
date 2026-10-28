@@ -15,23 +15,22 @@ from aiomqtt import Client, Message, MqttError
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
 
-from .common import (
+from .mqtt import (
     LOGGER,
     LIVE,
     AliveManifest,
     _Deadline,
     _RetainedBurst,
-    MiniconfException,
     alive_manifest,
     is_authoritative,
     json_dumps,
     message_expiry,
     mqtt_client,
-    subtree_match,
     subscribe,
     unsubscribe,
-    validate_path,
 )
+from .errors import MiniconfException
+from .paths import subtree_match, validate_path
 from .schema import Schema
 
 
@@ -387,6 +386,10 @@ class Miniconf(_BaseClient):
         Entry waits for subscription and schema readiness. Live subscriptions opened
         immediately after session entry join the initial subscription batch.
         Other readers can cause retained replay even with replay=False.
+        Events distinguish JSON null from deletion through ``present``. An alive
+        deletion raises ``Offline``; a changed supported manifest raises ``Changed``;
+        an unsupported protocol raises ``Protocol``. Reopen the subscription after
+        a generation change; the client session remains usable.
         """
         deadline = _Deadline(timeout)
         root = validate_path(path)
@@ -463,7 +466,7 @@ class Miniconf(_BaseClient):
                     for byte in page:
                         revision = ((revision ^ byte) * 0x01000193) & 0xFFFFFFFF
                 if revision == manifest.schema_rev:
-                    schema = Schema.from_defs(
+                    schema = Schema(
                         [
                             json.loads(line)
                             for page in pages

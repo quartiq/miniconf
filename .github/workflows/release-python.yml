@@ -29,7 +29,7 @@ jobs:
           python - <<'PY'
           import os, tomllib
           from pathlib import Path
-          version = tomllib.loads(Path("py/pyproject.toml").read_text())["project"]["version"]
+          version = tomllib.loads(Path("py/miniconf_mqtt/pyproject.toml").read_text())["project"]["version"]
           assert os.environ["GITHUB_REF_NAME"] == f"miniconf-mqtt-v{version}"
           PY
       - uses: dtolnay/rust-toolchain@stable
@@ -41,15 +41,15 @@ jobs:
           sudo service mosquitto start
           cargo build -p miniconf_mqtt --example miniconf
           python -m pip install build
-          python -m build py
-          python -m pip install py/dist/*.whl paho-mqtt
-          python -I -m unittest discover -s py/tests
-          python -I py/test.py
-          miniconf --help
+          python -m build py/miniconf_mqtt
+          python -m pip install py/miniconf_mqtt/dist/*.whl 'miniconf-mqtt[dev]'
+          python -I -m pytest -n 8 py/miniconf_mqtt/tests
+          python -I py/miniconf_mqtt/test.py
+          miniconf-mqtt --help
       - uses: actions/upload-artifact@v7
         with:
           name: python-dist
-          path: py/dist/*
+          path: py/miniconf_mqtt/dist/*
           if-no-files-found: error
 
   publish:
