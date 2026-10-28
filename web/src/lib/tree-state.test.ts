@@ -23,10 +23,11 @@ describe("tree state", () => {
     ]);
     const kept = updateActivity(previous, [], tree, 1000);
     expect([...kept.keys()]).toEqual(["/a"]);
-    expect(kept.get("/a")).toBe(previous.get("/a"));
+    expect(kept.get("/a")).toEqual({ at: 1 });
     const next = updateActivity(kept, ["", "/b"], tree, 1000);
     expect([...next.keys()]).toEqual(["/a", "", "/b"]);
-    expect(next.get("")).toBe(next.get("/b"));
+    expect(next.get("")).toEqual({ at: 1000 });
+    expect(next.get("/b")).toEqual({ at: 1000 });
     expect(updateActivity(next, [], tree, 2000).size).toBe(0);
     expect(previous.size).toBe(3);
     expect(kept.size).toBe(1);

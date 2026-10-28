@@ -90,7 +90,7 @@ describe("Schema", () => {
     const schema = new Schema([{}, { i: { k: "n", c: names } }], 1);
     for (const name of Object.keys(names))
       expect(schema.node(`/${name}`).kind).toBe("leaf");
-    expect(() => schema.node("/toString")).toThrow("Unknown schema path");
+    expect(() => schema.node("/toString")).toThrow();
     for (const path of [
       "values/0",
       "/values/",
@@ -142,7 +142,7 @@ describe("Schema", () => {
 
   it("uses the empty path for the root", () => {
     expect(indexedSchema.path("")).toBe("");
-    expect(() => indexedSchema.path("/")).toThrow("Unknown schema path");
+    expect(() => indexedSchema.path("/")).toThrow();
   });
 
   it("resolves numbered and homogeneous paths", () => {

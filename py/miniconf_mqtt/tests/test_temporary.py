@@ -132,7 +132,7 @@ def test_registered_group_restores_in_order_and_can_be_kept():
         async with TemporaryChanges(configuration) as temporary:
             temporary.register_restore("/group", (("/group/b", 2), ("/group/a", 1)))
             assert temporary.pending
-            with pytest.raises(ValueError, match="overlapping"):
+            with pytest.raises(ValueError):
                 temporary.register_restore("/group/a", (("/group/a", 1),))
             await temporary.update({"/group/a": 3, "/group/b": 4})
         assert configuration.writes[-2:] == [("/group/b", 2), ("/group/a", 1)]

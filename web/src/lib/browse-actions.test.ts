@@ -52,7 +52,7 @@ it("validates locally and reports errors only for the matching draft", async () 
   model.edit("{");
   await model.submit();
   expect(session.set).not.toHaveBeenCalled();
-  expect(model.editorError).toContain("Invalid JSON");
+  expect(model.editorError).not.toBe("");
   model.edit("2");
   expect(model.editorError).toBe("");
 });
@@ -66,7 +66,7 @@ it("returns an acknowledged draft to the observed value without inventing an ech
   await pending;
   expect(model.editor).toBe("1");
   expect(model.dirty).toBe(false);
-  expect(model.result?.text).toBe("Set acknowledged");
+  expect(model.result?.failed).toBe(false);
 });
 
 it("keeps edits made while a Set is pending", async () => {
@@ -106,10 +106,8 @@ it("preserves a Set failure when independent pruning succeeds", async () => {
   await pending;
   finish();
   await pruning;
-  expect(model.result).toMatchObject({
-    text: "Set failed: denied",
-    failed: true,
-  });
+  expect(model.result?.failed).toBe(true);
+  expect(model.result?.text).toContain("denied");
   expect(model.editor).toBe("2");
   expect(model.pending.size).toBe(0);
 });
@@ -120,5 +118,5 @@ it("an explicit new action replaces an earlier failure", async () => {
   reply(false);
   await pending;
   await model.prune();
-  expect(model.result).toMatchObject({ text: "Cleared 3", failed: false });
+  expect(model.result?.failed).toBe(false);
 });

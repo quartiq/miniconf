@@ -324,8 +324,9 @@ class ClientTests(IsolatedAsyncioTestCase):
 
         transport.publish.side_effect = publish
         async with RawMiniconf(transport, "test") as client:
-            with self.assertRaisesRegex(MiniconfException, "Missing response code"):
+            with self.assertRaises(MiniconfException) as error:
                 await client.set("/value", 1, timeout=1)
+            self.assertEqual(error.exception.code, "Protocol")
             transport.publish.side_effect = None
             await client.set("/value", 2, response=False, timeout=1)
 
