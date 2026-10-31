@@ -356,14 +356,16 @@ impl FollowUp {
                         }
                         Err(err) if is_backpressure(connection, &err) => return Ok(false),
                         Err(err) => {
-                            if let Some(target) = reply.take() {
+                            if let Some(error) = publish_error(&err)
+                                && let Some(target) = reply.take()
+                            {
                                 warn!(
                                     "Authoritative setting publish failed; replying with Miniconf error reply_topic={=str}",
                                     target.topic()
                                 );
                                 *self = Self::Reply {
                                     target,
-                                    error: Some(publish_error(&err)),
+                                    error: Some(error),
                                     op: None,
                                 };
                                 continue;
@@ -434,18 +436,31 @@ fn encode_body(body: &ResponseBody) -> ReplyError {
     }
 }
 
-fn publish_error<E: core::fmt::Debug>(err: &Error<E>) -> ReplyError {
+fn publish_error<E>(err: &Error<E>) -> Option<ReplyError> {
     let mut error = String::new();
-    write!(error.as_mut_view(), "{err:?}").ok();
     let mut payload = String::new();
-    write!(payload.as_mut_view(), "{err}").ok();
-    ReplyError {
+    let class = match err {
+        Error::Tree(err) => {
+            write!(error.as_mut_view(), "{err:?}").ok();
+            write!(payload.as_mut_view(), "{err}").ok();
+            "DescendError"
+        }
+        Error::Mqtt(MqttError::Resource(err)) => {
+            write!(error.as_mut_view(), "{err:?}").ok();
+            write!(payload.as_mut_view(), "{err}").ok();
+            "ResourceError"
+        }
+        // Session and transport failures belong to the connection owner. Another
+        // publication cannot reliably report them over the same connection.
+        _ => return None,
+    };
+    Some(ReplyError {
         kind: "publish",
-        class: "Error",
+        class,
         error,
         depth: None,
         payload,
-    }
+    })
 }
 
 async fn reply<IO>(
@@ -494,4 +509,35 @@ where
         .await
         .map_err(simple_pub_error)?
         .ok_or(Error::Mqtt(MqttError::InvalidRequest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn publish_replies_report_local_failures_only() {
+        // Transport errors need no text formatter: they go back to the owner.
+        struct Transport;
+        let local: Error<Transport> =
+            Error::Mqtt(MqttError::Resource(minimq::ResourceError::BufferTooSmall));
+        let reply = publish_error(&local).unwrap();
+        assert_eq!(reply.kind, "publish");
+        assert_eq!(reply.class, "ResourceError");
+        assert!(!reply.error.is_empty());
+        assert!(!reply.payload.is_empty());
+
+        let tree: Error<Transport> = Error::Tree(miniconf::DescendError::Inner(()));
+        assert_eq!(publish_error(&tree).unwrap().class, "DescendError");
+        for error in [
+            MqttError::Transport(Transport),
+            MqttError::Disconnected,
+            MqttError::NotReady,
+            MqttError::WriteZero,
+            MqttError::MissingCompletion,
+            MqttError::InvalidRequest,
+        ] {
+            assert!(publish_error(&Error::Mqtt(error)).is_none());
+        }
+    }
 }

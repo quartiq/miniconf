@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * Match complete MQTT topic levels and reject retained mutation requests.
 * Retry queued publications when shared MQTT TX storage is temporarily occupied.
+* Return publication transport/session failures to the connection owner instead of
+  attempting an error reply on the same connection.
 
 ## [0.23.0](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.22.1...miniconf_mqtt-v0.23.0) - 2026-09-25
 
