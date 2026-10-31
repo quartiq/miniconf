@@ -1259,3 +1259,45 @@ fn rejects_mqtt_v3_configuration() {
         Err(minimq::ConfigError::InvalidConfig)
     ));
 }
+
+#[tokio::test]
+async fn startup_rejection_requires_a_new_attempt() {
+    use tokio::io::AsyncWriteExt;
+    let (client, mut broker) = tokio::io::duplex(8192);
+    broker
+        .write_all(&[0x20, 3, 0, 0, 0, 0x40, 3, 0, 1, 0x87])
+        .await
+        .unwrap();
+    let (mut miniconf, mut session) =
+        Miniconf::<common::Settings>::new("rejection", config()).unwrap();
+    let settings = common::Settings::new();
+    let mut connection = session.connect(FromTokio::new(client)).await.unwrap();
+    let mut startup = miniconf_mqtt::Startup::connected(&mut miniconf);
+    assert!(
+        !startup
+            .step(&mut miniconf, &mut connection, &settings)
+            .await
+            .unwrap()
+    );
+    let minimq::Event::Completed { op, outcome } = connection.poll().await.unwrap() else {
+        panic!("expected completion")
+    };
+    assert!(startup.handle_completion(op, &outcome));
+    for _ in 0..2 {
+        assert!(matches!(
+            startup
+                .step(&mut miniconf, &mut connection, &settings)
+                .await,
+            Err(miniconf_mqtt::Error::Mqtt(minimq::Error::Peer(
+                minimq::PeerError::Rejected(minimq::ReasonCode::NotAuthorized)
+            )))
+        ));
+    }
+    let mut startup = miniconf_mqtt::Startup::connected(&mut miniconf);
+    assert!(
+        !startup
+            .step(&mut miniconf, &mut connection, &settings)
+            .await
+            .unwrap()
+    );
+}
