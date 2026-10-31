@@ -1262,6 +1262,7 @@ fn rejects_mqtt_v3_configuration() {
 
 #[tokio::test]
 async fn startup_rejection_requires_a_new_attempt() {
+    init_host_logging();
     use tokio::io::AsyncWriteExt;
     let (client, mut broker) = tokio::io::duplex(8192);
     broker
