@@ -30,6 +30,7 @@ pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 /// Miniconf MQTT setup, tree, or MQTT connection error.
+#[derive(defmt::Format)]
 pub enum Error<E> {
     /// Tree traversal or path resolution failed before any MQTT I/O.
     #[error("tree path resolution failed: {0}")]
@@ -185,6 +186,7 @@ where
 
 /// Result of `Miniconf::serve()`.
 #[must_use = "match on the event to handle unhandled traffic or a changed leaf"]
+#[derive(defmt::Format)]
 pub enum Event<T> {
     /// One non-Miniconf inbound publish was returned through the callback.
     Unhandled(T),
@@ -194,6 +196,7 @@ pub enum Event<T> {
 
 /// Immediate outcome of cooperative Miniconf service work.
 #[must_use = "match on the event to handle unhandled traffic or changed local settings"]
+#[derive(defmt::Format)]
 pub enum ServiceEvent {
     /// The message was consumed without reporting a settings change; follow-up work may be queued.
     Idle,

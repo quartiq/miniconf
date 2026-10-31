@@ -1,8 +1,8 @@
 use embassy_time::{Duration, Instant, with_deadline};
 use miniconf::{SerdeError, TreeDeserializeOwned};
 use minimq::{
-    Connection, Error as MqttError, InboundPublish, Io, Op, QoS, ResourceError, RetainHandling,
-    SubscriptionOptions, TopicFilter,
+    Connection, Error as MqttError, Event, InboundPublish, Io, Op, Outcome, Protocol, QoS,
+    ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
 };
 
 use super::request::{Auth, auth, resolve_leaf, set_leaf};
@@ -44,7 +44,7 @@ impl Default for LoadRetained {
 impl LoadRetained {
     /// Record a completion, returning whether it belongs to this workflow.
     /// The next `step` reports any broker rejection.
-    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+    pub fn handle_completion(&mut self, op: Op, outcome: &Outcome<'_>) -> bool {
         match &mut self.phase {
             LoadRetainedPhase::Subscribe { op: pending, .. }
             | LoadRetainedPhase::Unsubscribe(pending) => super::complete_op(pending, op, outcome),
@@ -97,7 +97,7 @@ impl LoadRetained {
         Settings: TreeDeserializeOwned,
         IO: Io,
     {
-        if connection.session().protocol() != minimq::Protocol::V5 {
+        if connection.session().protocol() != Protocol::V5 {
             return Err(MqttError::InvalidRequest.into());
         }
         loop {
@@ -106,10 +106,10 @@ impl LoadRetained {
                     match poll_op(connection, op)? {
                         PendingOp::Pending => {
                             match connection.poll().await? {
-                                minimq::Event::Publish(inbound) => {
+                                Event::Publish(inbound) => {
                                     apply_retained(miniconf.prefix.as_str(), settings, &inbound);
                                 }
-                                minimq::Event::Completed {
+                                Event::Completed {
                                     op: completed,
                                     outcome,
                                 } => {
@@ -144,9 +144,7 @@ impl LoadRetained {
                             return Ok(false);
                         }
                         Err(err) if is_backpressure(connection, &err) => {
-                            if let minimq::Event::Completed { op, outcome } =
-                                connection.poll().await?
-                            {
+                            if let Event::Completed { op, outcome } = connection.poll().await? {
                                 self.handle_completion(op, &outcome);
                             }
                             return Ok(false);
@@ -156,7 +154,7 @@ impl LoadRetained {
                 }
                 LoadRetainedPhase::Drain { deadline, quiet } => {
                     match with_deadline(*deadline, connection.poll()).await {
-                        Ok(Ok(minimq::Event::Publish(inbound))) => {
+                        Ok(Ok(Event::Publish(inbound))) => {
                             if apply_retained(miniconf.prefix.as_str(), settings, &inbound) {
                                 // Retained storage has no commit marker. Resetting to the last accepted
                                 // retained publish keeps the heuristic simple and deterministic.
@@ -164,7 +162,7 @@ impl LoadRetained {
                             }
                             return Ok(false);
                         }
-                        Ok(Ok(minimq::Event::Completed { .. })) => return Ok(false),
+                        Ok(Ok(Event::Completed { .. })) => return Ok(false),
                         Ok(Err(err)) => return Err(Error::Mqtt(err)),
                         Err(_) => {
                             self.phase = LoadRetainedPhase::Unsubscribe(None);
@@ -174,7 +172,7 @@ impl LoadRetained {
                 }
                 LoadRetainedPhase::Unsubscribe(op) => match poll_op(connection, op)? {
                     PendingOp::Pending => {
-                        if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+                        if let Event::Completed { op, outcome } = connection.poll().await? {
                             self.handle_completion(op, &outcome);
                         }
                         return Ok(false);
@@ -191,9 +189,7 @@ impl LoadRetained {
                                 return Ok(false);
                             }
                             Err(err) if is_backpressure(connection, &err) => {
-                                if let minimq::Event::Completed { op, outcome } =
-                                    connection.poll().await?
-                                {
+                                if let Event::Completed { op, outcome } = connection.poll().await? {
                                     self.handle_completion(op, &outcome);
                                 }
                                 return Ok(false);

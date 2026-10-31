@@ -2,8 +2,8 @@ use miniconf::{
     IntoKeys, NodeIter, ResolveError, Schema, TreeSchema, TreeSerialize, compact_schema::SchemaDefs,
 };
 use minimq::{
-    ConnectEvent, Connection, Error as MqttError, Io, Op, PubError, Publication, QoS,
-    ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
+    ConnectEvent, Connection, Error as MqttError, Event, Io, Op, Outcome, Protocol, PubError,
+    Publication, QoS, ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
 };
 
 use super::{is_backpressure, poll_op};
@@ -65,7 +65,7 @@ impl SchemaSync {
 impl Startup {
     /// Record a completion, returning whether it belongs to this workflow.
     /// The next `step` reports any broker rejection.
-    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+    pub fn handle_completion(&mut self, op: Op, outcome: &Outcome<'_>) -> bool {
         match &mut self.phase {
             StartupPhase::Schema { op: pending, .. }
             | StartupPhase::SubscribeSet(pending)
@@ -139,7 +139,7 @@ impl Startup {
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
-            if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+            if let Event::Completed { op, outcome } = connection.poll().await? {
                 self.handle_completion(op, &outcome);
             }
         }
@@ -164,7 +164,7 @@ impl Startup {
         Settings: TreeSerialize,
         IO: Io,
     {
-        if connection.session().protocol() != minimq::Protocol::V5 {
+        if connection.session().protocol() != Protocol::V5 {
             return Err(MqttError::InvalidRequest.into());
         }
         // Replayed traffic must release its storage before startup uses the publish budget.
@@ -248,7 +248,7 @@ impl Startup {
 impl Publisher {
     /// Record a completion, returning whether it belongs to this workflow.
     /// The next `step` reports any broker rejection.
-    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+    pub fn handle_completion(&mut self, op: Op, outcome: &Outcome<'_>) -> bool {
         super::complete_op(&mut self.op, op, outcome)
     }
 
@@ -291,7 +291,7 @@ impl Publisher {
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
-            if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+            if let Event::Completed { op, outcome } = connection.poll().await? {
                 self.handle_completion(op, &outcome);
             }
         }
@@ -316,7 +316,7 @@ impl Publisher {
         Settings: TreeSerialize,
         IO: Io,
     {
-        if connection.session().protocol() != minimq::Protocol::V5 {
+        if connection.session().protocol() != Protocol::V5 {
             return Err(MqttError::InvalidRequest.into());
         }
         loop {
@@ -431,7 +431,7 @@ where
             Ok(false)
         }
         Err(PubError::Payload(PayloadError::Schema(id))) => {
-            info!(
+            debug!(
                 "Aborting schema sync after oversized schema entry definition={=usize}",
                 id
             );

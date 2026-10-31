@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.23.0...HEAD) - DATE
 
+### Added
+
+* Native `defmt` formatting for errors and service events.
+
 ### Changed
 
 * **Breaking:** route completion events through `handle_completion()` before `step()`,
