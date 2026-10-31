@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 use core::fmt::Write as _;
 
-use heapless::{String, Vec};
+use heapless::String;
 use miniconf::{
     DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     ValueError, json_core,
@@ -456,38 +456,39 @@ async fn reply<IO>(
 where
     IO: Io,
 {
-    let mut depth_text = String::<16>::new();
-    // Two text properties, four error fields, and an optional depth.
-    let mut props = Vec::<_, 7>::new();
-    for prop in TRANSIENT_TEXT_PROPERTIES {
-        props.push(prop.clone()).unwrap();
-    }
-    let payload = if let Some(error) = error {
-        for (key, value) in [
-            ("code", "Error"),
-            ("kind", error.kind),
-            ("class", error.class),
-            ("error", error.error.as_str()),
-        ] {
-            props.push(Property::UserProperty(key, value)).unwrap();
-        }
-        if let Some(depth) = error.depth
-            && write!(depth_text.as_mut_view(), "{depth}").is_ok()
-        {
-            props
-                .push(Property::UserProperty("depth", &depth_text))
-                .unwrap();
-        }
-        error.payload.as_bytes()
+    let mut depth_text = String::<20>::new();
+    let [format, expiry] = TRANSIENT_TEXT_PROPERTIES;
+    let mut props = [
+        format.clone(),
+        expiry.clone(),
+        Property::UserProperty("code", "Ok"),
+        Property::UserProperty("kind", ""),
+        Property::UserProperty("class", ""),
+        Property::UserProperty("error", ""),
+        Property::UserProperty("depth", ""),
+    ];
+    let (payload, count) = if let Some(error) = error {
+        props[2] = Property::UserProperty("code", "Error");
+        props[3] = Property::UserProperty("kind", error.kind);
+        props[4] = Property::UserProperty("class", error.class);
+        props[5] = Property::UserProperty("error", error.error.as_str());
+        let count = if let Some(depth) = error.depth {
+            // A decimal usize fits in 20 bytes on all supported targets.
+            write!(depth_text.as_mut_view(), "{depth}").ok();
+            props[6] = Property::UserProperty("depth", &depth_text);
+            7
+        } else {
+            6
+        };
+        (error.payload.as_bytes(), count)
     } else {
-        props.push(Property::UserProperty("code", "Ok")).unwrap();
-        b""
+        (&b""[..], 3)
     };
     connection
         .publish(
             target
                 .publication(payload)
-                .properties(&props)
+                .properties(&props[..count])
                 .qos(QoS::AtLeastOnce),
         )
         .await
