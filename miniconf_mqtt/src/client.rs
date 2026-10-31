@@ -1,3 +1,4 @@
+mod load;
 mod request;
 mod sync;
 
@@ -20,8 +21,9 @@ use crate::{
     MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION, RESPONSE_CORRELATION_LENGTH,
     RETAINED_TEXT_PROPERTIES, TopicString, debug, message::simple_pub_error,
 };
+pub use load::LoadRetained;
 use request::FollowUp;
-pub use sync::{LoadRetained, Publisher, Startup};
+pub use sync::{Publisher, Startup};
 
 /// Exact leaf indices produced by Miniconf request handling.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
