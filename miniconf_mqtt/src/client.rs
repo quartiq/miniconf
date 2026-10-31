@@ -280,6 +280,9 @@ where
             .qos(QoS::AtLeastOnce);
         let config = config.will(will)?;
         let session = Session::new(config);
+        if session.protocol() != minimq::Protocol::V5 {
+            return Err(ConfigError::InvalidConfig);
+        }
 
         Ok((
             Self {
@@ -334,6 +337,9 @@ where
         Settings: TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
+        if connection.session().protocol() != minimq::Protocol::V5 {
+            return Err(MqttError::InvalidRequest.into());
+        }
         // Reuse the bounded service path with capacity one. `serve()` drains every queued
         // follow-up before polling another request, so `Busy` is not reachable in normal use.
         let mut service = Service::<1>::new();
@@ -498,6 +504,9 @@ impl<const N: usize> Service<N> {
         Settings: TreeSerialize,
         IO: Io,
     {
+        if connection.session().protocol() != minimq::Protocol::V5 {
+            return Err(MqttError::InvalidRequest.into());
+        }
         loop {
             let Some(follow_up) = self.follow_ups.front_mut() else {
                 return Ok(true);

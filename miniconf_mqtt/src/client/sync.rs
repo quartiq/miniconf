@@ -170,6 +170,9 @@ impl Startup {
         Settings: TreeSerialize,
         IO: Io,
     {
+        if connection.session().protocol() != minimq::Protocol::V5 {
+            return Err(MqttError::InvalidRequest.into());
+        }
         // Replayed traffic must release its storage before startup uses the publish budget.
         if !matches!(self.phase, StartupPhase::Done) && !connection.session().is_publish_quiescent()
         {
@@ -300,6 +303,9 @@ impl LoadRetained {
         Settings: TreeDeserializeOwned,
         IO: Io,
     {
+        if connection.session().protocol() != minimq::Protocol::V5 {
+            return Err(MqttError::InvalidRequest.into());
+        }
         loop {
             match &mut self.phase {
                 LoadRetainedPhase::Subscribe { start, op } => {
@@ -454,6 +460,9 @@ impl Publisher {
         Settings: TreeSerialize,
         IO: Io,
     {
+        if connection.session().protocol() != minimq::Protocol::V5 {
+            return Err(MqttError::InvalidRequest.into());
+        }
         loop {
             if self.iter.is_none() {
                 self.iter = Some(NodeIter::with_root(self.schema, self.root.as_ref())?);

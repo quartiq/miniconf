@@ -5,6 +5,9 @@
 It owns Miniconf MQTT protocol state; the caller owns the MQTT session, live connection, and
 settings tree.
 
+Miniconf requires MQTT 5. MQTT 3.1.1 configurations and connections are rejected at the client
+and workflow entry points.
+
 ## Quick start
 
 See the runnable example in [examples/miniconf.rs](examples/miniconf.rs).

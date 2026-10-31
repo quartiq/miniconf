@@ -1226,3 +1226,14 @@ async fn completed_startup_resumes_after_draining_pending_traffic() {
     .await
     .unwrap();
 }
+
+#[test]
+fn rejects_mqtt_v3_configuration() {
+    let config = config().protocol(minimq::Protocol::V3_1_1 {
+        clean_session: true,
+    });
+    assert!(matches!(
+        Miniconf::<common::Settings>::new("v3", config),
+        Err(minimq::ConfigError::InvalidConfig)
+    ));
+}
