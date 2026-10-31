@@ -35,7 +35,9 @@ For precise control, `miniconf_mqtt` exposes four explicit building blocks:
 `Startup::step()`, `Publisher::step()`, and `Service::step()` leave inbound routing to the caller.
 `Ok(true)` means the workflow is complete or the service queue is empty. After `Ok(false)`, drive
 `Connection::poll()`, route publications to `handle()` and completions to the owning workflow’s
-`handle_completion()`, then retry. The next `step()` reports any broker rejection. `Startup::run()` and
+`handle_completion()`, then retry. The hook reports whether it recognized the operation.
+The next `step()` reports any broker rejection; an ended operation without a routed outcome
+produces `MissingCompletion`. `Startup::run()` and
 `Publisher::run()` own connection progress until their work completes. Use the cooperative
 `step()` methods to route events among workflows sharing a connection.
 

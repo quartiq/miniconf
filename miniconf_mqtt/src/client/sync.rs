@@ -93,7 +93,8 @@ impl SchemaSync {
 }
 
 impl Startup {
-    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    /// Record a completion, returning whether it belongs to this workflow.
+    /// The next `step` reports any broker rejection.
     pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
         match &mut self.phase {
             StartupPhase::Schema { op: pending, .. }
@@ -281,7 +282,8 @@ impl Default for LoadRetained {
 }
 
 impl LoadRetained {
-    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    /// Record a completion, returning whether it belongs to this workflow.
+    /// The next `step` reports any broker rejection.
     pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
         match &mut self.phase {
             LoadRetainedPhase::Subscribe { op: pending, .. }
@@ -447,7 +449,8 @@ impl LoadRetained {
 }
 
 impl Publisher {
-    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    /// Record a completion, returning whether it belongs to this workflow.
+    /// The next `step` reports any broker rejection.
     pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
         super::complete_op(&mut self.op, op, outcome)
     }

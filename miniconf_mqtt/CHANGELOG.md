@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * **Breaking:** cooperative workflows consume correlated Minimq completion events through
   `handle_completion()`. Their next `step()` reports broker rejection before advancing startup
-  or publication. The `run()` helpers route completions internally.
+  or publication. Missing completion routing produces `MissingCompletion` instead of waiting.
+  The `run()` helpers route completions internally.
 
 ### Fixed
 

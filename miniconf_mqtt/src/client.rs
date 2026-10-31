@@ -110,8 +110,10 @@ fn poll_op<IO: Io>(
         result.map_err(MqttError::Peer)?;
         *op = None;
         Ok(PendingOp::Complete)
-    } else if connection.is_invalidated(&current.op) {
+    } else if !connection.is_connected() || connection.is_invalidated(&current.op) {
         Err(MqttError::Disconnected.into())
+    } else if !connection.is_pending(&current.op) {
+        Err(MqttError::MissingCompletion.into())
     } else {
         Ok(PendingOp::Pending)
     }
@@ -440,7 +442,8 @@ impl<const N: usize> Default for Service<N> {
 }
 
 impl<const N: usize> Service<N> {
-    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    /// Record a completion, returning whether it belongs to this workflow.
+    /// The next `step` reports any broker rejection.
     pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
         self.follow_ups.iter_mut().any(|follow_up| match follow_up {
             FollowUp::Publish { op: pending, .. } | FollowUp::Reply { op: pending, .. } => {
