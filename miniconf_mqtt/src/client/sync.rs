@@ -28,10 +28,13 @@ pub struct Startup {
 
 #[allow(clippy::large_enum_variant)]
 enum StartupPhase {
-    Schema { sync: SchemaSync, op: Option<Op> },
+    Schema {
+        sync: SchemaSync,
+        op: Option<super::PendingOperation>,
+    },
     Settings(Publisher),
-    SubscribeSet(Option<Op>),
-    Alive(Option<Op>),
+    SubscribeSet(Option<super::PendingOperation>),
+    Alive(Option<super::PendingOperation>),
     Done,
 }
 
@@ -41,7 +44,7 @@ enum StartupPhase {
 /// when retained `settings/#` should seed the live settings tree.
 ///
 /// Do not run this on network reconnects of a still-running device. Local settings are already the
-/// authority in that case, even when the broker reports `ConnectEvent::Connected` because the MQTT
+/// authority in that case, even when the broker reports `ConnectEvent::SessionCreated` because the MQTT
 /// connection was not resumed.
 #[must_use = "drive retained loading to completion before starting Miniconf publication"]
 pub struct LoadRetained {
@@ -49,9 +52,15 @@ pub struct LoadRetained {
 }
 
 enum LoadRetainedPhase {
-    Subscribe { start: Instant, op: Option<Op> },
-    Drain { deadline: Instant, quiet: Duration },
-    Unsubscribe(Option<Op>),
+    Subscribe {
+        start: Instant,
+        op: Option<super::PendingOperation>,
+    },
+    Drain {
+        deadline: Instant,
+        quiet: Duration,
+    },
+    Unsubscribe(Option<super::PendingOperation>),
     Done,
 }
 
@@ -62,7 +71,7 @@ pub struct Publisher {
     root: ChangedKey,
     iter: Option<NodeIter<(), MAX_DEPTH>>,
     pending: Option<ChangedKey>,
-    op: Option<Op>,
+    op: Option<super::PendingOperation>,
 }
 
 struct SchemaSync {
@@ -84,13 +93,24 @@ impl SchemaSync {
 }
 
 impl Startup {
+    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+        match &mut self.phase {
+            StartupPhase::Schema { op: pending, .. }
+            | StartupPhase::SubscribeSet(pending)
+            | StartupPhase::Alive(pending) => super::complete_op(pending, op, outcome),
+            StartupPhase::Settings(publisher) => publisher.handle_completion(op, outcome),
+            StartupPhase::Done => false,
+        }
+    }
+
     /// Begin Miniconf startup after one MQTT connect event.
     pub fn new<Settings>(miniconf: &mut Miniconf<Settings>, event: ConnectEvent) -> Self
     where
         Settings: TreeSchema,
     {
         match event {
-            ConnectEvent::Reconnected if miniconf.startup_complete => {
+            ConnectEvent::SessionResumed if miniconf.startup_complete => {
                 info!(
                     "Starting reconnected Miniconf startup prefix={=str} epoch={=u32} schema_rev={=u32}",
                     miniconf.prefix.as_str(),
@@ -105,7 +125,7 @@ impl Startup {
         }
     }
 
-    /// Begin the Miniconf startup path for `ConnectEvent::Connected`.
+    /// Begin the Miniconf startup path for `ConnectEvent::SessionCreated`.
     ///
     /// Use this after cold-boot [`LoadRetained`] so the retained mirror is republished
     /// authoritatively from the recovered local settings.
@@ -135,7 +155,8 @@ impl Startup {
 
     /// Run Miniconf startup to completion.
     ///
-    /// This helper may consume and discard surfaced inbound publishes while bootstrapping.
+    /// This helper owns connection progress until startup completes. Use `step()` and
+    /// route events when other workflows share the connection.
     pub async fn run<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
@@ -147,7 +168,9 @@ impl Startup {
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
-            let _ = connection.poll().await?;
+            if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+                self.handle_completion(op, &outcome);
+            }
         }
         Ok(())
     }
@@ -210,7 +233,7 @@ impl Startup {
                     }
                     PendingOp::Idle => match subscribe_set(&miniconf.prefix, connection).await {
                         Ok(next) => {
-                            *op = Some(next);
+                            *op = Some(next.into());
                             return Ok(false);
                         }
                         Err(err) if is_backpressure(connection, &err) => return Ok(false),
@@ -237,7 +260,7 @@ impl Startup {
                         .await
                         {
                             Ok(next) => {
-                                *op = Some(next);
+                                *op = Some(next.into());
                                 return Ok(false);
                             }
                             Err(err) if is_backpressure(connection, &err) => return Ok(false),
@@ -258,6 +281,15 @@ impl Default for LoadRetained {
 }
 
 impl LoadRetained {
+    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+        match &mut self.phase {
+            LoadRetainedPhase::Subscribe { op: pending, .. }
+            | LoadRetainedPhase::Unsubscribe(pending) => super::complete_op(pending, op, outcome),
+            _ => false,
+        }
+    }
+
     /// Begin loading retained `settings/#` into local settings.
     pub fn new() -> Self {
         Self {
@@ -311,8 +343,16 @@ impl LoadRetained {
                 LoadRetainedPhase::Subscribe { start, op } => {
                     match poll_op(connection, op)? {
                         PendingOp::Pending => {
-                            if let Some(inbound) = connection.poll().await? {
-                                apply_retained(miniconf.prefix.as_str(), settings, &inbound);
+                            match connection.poll().await? {
+                                minimq::Event::Publish(inbound) => {
+                                    apply_retained(miniconf.prefix.as_str(), settings, &inbound);
+                                }
+                                minimq::Event::Completed {
+                                    op: completed,
+                                    outcome,
+                                } => {
+                                    super::complete_op(op, completed, &outcome);
+                                }
                             }
                             return Ok(false);
                         }
@@ -338,11 +378,15 @@ impl LoadRetained {
                     match subscribe_settings(&miniconf.prefix, connection).await {
                         Ok(next) => {
                             *start = Instant::now();
-                            *op = Some(next);
+                            *op = Some(next.into());
                             return Ok(false);
                         }
                         Err(err) if is_backpressure(connection, &err) => {
-                            let _ = connection.poll().await?;
+                            if let minimq::Event::Completed { op, outcome } =
+                                connection.poll().await?
+                            {
+                                self.handle_completion(op, &outcome);
+                            }
                             return Ok(false);
                         }
                         Err(err) => return Err(err),
@@ -350,7 +394,7 @@ impl LoadRetained {
                 }
                 LoadRetainedPhase::Drain { deadline, quiet } => {
                     match with_deadline(*deadline, connection.poll()).await {
-                        Ok(Ok(Some(inbound))) => {
+                        Ok(Ok(minimq::Event::Publish(inbound))) => {
                             if apply_retained(miniconf.prefix.as_str(), settings, &inbound) {
                                 // Retained storage has no commit marker. Resetting to the last accepted
                                 // retained publish keeps the heuristic simple and deterministic.
@@ -358,7 +402,7 @@ impl LoadRetained {
                             }
                             return Ok(false);
                         }
-                        Ok(Ok(None)) => return Ok(false),
+                        Ok(Ok(minimq::Event::Completed { .. })) => return Ok(false),
                         Ok(Err(err)) => return Err(Error::Mqtt(err)),
                         Err(_) => {
                             self.phase = LoadRetainedPhase::Unsubscribe(None);
@@ -368,7 +412,9 @@ impl LoadRetained {
                 }
                 LoadRetainedPhase::Unsubscribe(op) => match poll_op(connection, op)? {
                     PendingOp::Pending => {
-                        let _ = connection.poll().await?;
+                        if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+                            self.handle_completion(op, &outcome);
+                        }
                         return Ok(false);
                     }
                     PendingOp::Complete => {
@@ -379,11 +425,15 @@ impl LoadRetained {
                     PendingOp::Idle => {
                         match unsubscribe_settings(&miniconf.prefix, connection).await {
                             Ok(next) => {
-                                *op = Some(next);
+                                *op = Some(next.into());
                                 return Ok(false);
                             }
                             Err(err) if is_backpressure(connection, &err) => {
-                                let _ = connection.poll().await?;
+                                if let minimq::Event::Completed { op, outcome } =
+                                    connection.poll().await?
+                                {
+                                    self.handle_completion(op, &outcome);
+                                }
                                 return Ok(false);
                             }
                             Err(err) => return Err(err),
@@ -397,6 +447,11 @@ impl LoadRetained {
 }
 
 impl Publisher {
+    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+        super::complete_op(&mut self.op, op, outcome)
+    }
+
     /// Begin explicit retained publication for the whole tree root.
     pub fn root(schema: &'static Schema) -> Self {
         Self {
@@ -423,9 +478,8 @@ impl Publisher {
 
     /// Run retained subtree publication to completion.
     ///
-    /// This is the simple unbounded helper. It may discard unrelated inbound publishes while
-    /// waiting for MQTT connection progress. Use [`Publisher::step`] when those publishes must be
-    /// routed elsewhere.
+    /// This helper owns connection progress until publication completes. Use [`Publisher::step`]
+    /// and route events when other workflows share the connection.
     pub async fn run<Settings, IO>(
         &mut self,
         miniconf: &Miniconf<Settings>,
@@ -437,7 +491,9 @@ impl Publisher {
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
-            let _ = connection.poll().await?;
+            if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+                self.handle_completion(op, &outcome);
+            }
         }
         Ok(())
     }
@@ -505,7 +561,7 @@ impl Publisher {
                 .await
             {
                 Ok(op) => {
-                    self.op = Some(op);
+                    self.op = Some(op.into());
                     return Ok(false);
                 }
                 Err(err) if is_backpressure(connection, &err) => return Ok(false),
@@ -598,7 +654,7 @@ async fn step_schema<Settings, IO>(
     prefix: &TopicString,
     connection: &mut Connection<'_, '_, IO>,
     sync: &mut SchemaSync,
-    op: &mut Option<Op>,
+    op: &mut Option<super::PendingOperation>,
 ) -> Result<bool, Error<IO::Error>>
 where
     Settings: TreeSerialize,
@@ -645,7 +701,7 @@ where
             sync.next += count;
             sync.page += 1;
             sync.hash = hash;
-            *op = Some(next_op);
+            *op = Some(next_op.into());
             Ok(false)
         }
         Ok(None) => Err(Error::Mqtt(MqttError::InvalidRequest)),

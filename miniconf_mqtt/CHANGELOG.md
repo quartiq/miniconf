@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.23.0...HEAD) - DATE
 
+### Changed
+
+* **Breaking:** cooperative workflows consume correlated Minimq completion events through
+  `handle_completion()`. Their next `step()` reports broker rejection before advancing startup
+  or publication. The `run()` helpers route completions internally.
+
 ### Fixed
 
 * Match complete MQTT topic levels and reject retained mutation requests.

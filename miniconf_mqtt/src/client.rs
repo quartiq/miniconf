@@ -75,24 +75,45 @@ fn is_backpressure<IO: Io>(connection: &Connection<'_, '_, IO>, error: &Error<IO
     }
 }
 
-fn poll_op<IO>(
+pub(crate) struct PendingOperation {
+    op: Op,
+    result: Option<Result<(), minimq::PeerError>>,
+}
+
+impl From<Op> for PendingOperation {
+    fn from(op: Op) -> Self {
+        Self { op, result: None }
+    }
+}
+
+fn complete_op(
+    pending: &mut Option<PendingOperation>,
+    op: Op,
+    outcome: &minimq::Outcome<'_>,
+) -> bool {
+    if let Some(pending) = pending.as_mut().filter(|pending| pending.op == op) {
+        pending.result = Some(outcome.check());
+        true
+    } else {
+        false
+    }
+}
+
+fn poll_op<IO: Io>(
     connection: &Connection<'_, '_, IO>,
-    op: &mut Option<Op>,
-) -> Result<PendingOp, Error<IO::Error>>
-where
-    IO: Io,
-{
-    let Some(current) = *op else {
+    op: &mut Option<PendingOperation>,
+) -> Result<PendingOp, Error<IO::Error>> {
+    let Some(current) = op else {
         return Ok(PendingOp::Idle);
     };
-    if connection.is_pending(&current) {
-        Ok(PendingOp::Pending)
-    } else if connection.is_complete(&current) {
+    if let Some(result) = current.result {
+        result.map_err(MqttError::Peer)?;
         *op = None;
         Ok(PendingOp::Complete)
+    } else if connection.is_invalidated(&current.op) {
+        Err(MqttError::Disconnected.into())
     } else {
-        debug_assert!(connection.is_invalidated(&current));
-        Err(Error::Mqtt(MqttError::Disconnected))
+        Ok(PendingOp::Pending)
     }
 }
 
@@ -297,8 +318,8 @@ where
 
     /// Run Miniconf startup to completion after one MQTT connect event.
     ///
-    /// `ConnectEvent::Connected` republishes schema/settings, subscribes `set/#`, and publishes
-    /// `alive`. `ConnectEvent::Reconnected` only republishes `alive` if startup previously
+    /// `ConnectEvent::SessionCreated` republishes schema/settings, subscribes `set/#`, and publishes
+    /// `alive`. `ConnectEvent::SessionResumed` only republishes `alive` if startup previously
     /// completed; otherwise it restarts synchronization from the current settings.
     ///
     /// This is the simple unbounded startup path. Fresh startup may discard inbound publishes
@@ -345,7 +366,7 @@ where
         let mut service = Service::<1>::new();
         loop {
             let inbound = connection.poll().await?;
-            let Some(inbound) = inbound else {
+            let minimq::Event::Publish(inbound) = inbound else {
                 continue;
             };
             let event = service.handle(self, settings, &inbound);
@@ -353,7 +374,9 @@ where
                 return Ok(Event::Unhandled(on_unhandled(&inbound)));
             }
             while !service.step(self, connection, settings).await? {
-                let _ = connection.poll().await?;
+                if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+                    service.handle_completion(op, &outcome);
+                }
             }
             if let ServiceEvent::Changed(changed) = event {
                 return Ok(Event::Changed(changed));
@@ -417,6 +440,16 @@ impl<const N: usize> Default for Service<N> {
 }
 
 impl<const N: usize> Service<N> {
+    /// Route an MQTT completion. The next `step` reports any broker rejection.
+    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+        self.follow_ups.iter_mut().any(|follow_up| match follow_up {
+            FollowUp::Publish { op: pending, .. } | FollowUp::Reply { op: pending, .. } => {
+                complete_op(pending, op, outcome)
+            }
+            FollowUp::Done => false,
+        })
+    }
+
     /// Construct an empty bounded Miniconf service.
     pub const fn new() -> Self {
         Self {

@@ -25,12 +25,12 @@ pub(crate) enum FollowUp {
     Publish {
         state: ChangedKey,
         reply: Option<ReplyTarget>,
-        op: Option<Op>,
+        op: Option<super::PendingOperation>,
     },
     Reply {
         target: ReplyTarget,
         error: Option<ReplyError>,
-        op: Option<Op>,
+        op: Option<super::PendingOperation>,
     },
     Done,
 }
@@ -351,7 +351,7 @@ impl FollowUp {
                         .await
                     {
                         Ok(next) => {
-                            *op = Some(next);
+                            *op = Some(next.into());
                             return Ok(false);
                         }
                         Err(err) if is_backpressure(connection, &err) => return Ok(false),
@@ -387,7 +387,7 @@ impl FollowUp {
                     }
                     match reply(connection, target, error.as_ref()).await {
                         Ok(next) => {
-                            *op = Some(next);
+                            *op = Some(next.into());
                             return Ok(false);
                         }
                         Err(err) if is_backpressure(connection, &err) => return Ok(false),

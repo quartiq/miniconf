@@ -122,22 +122,21 @@ async fn wait_session<'session, 'buf>(
         .unwrap();
     assert!(matches!(
         connection.connect_event(),
-        ConnectEvent::Connected | ConnectEvent::Reconnected
+        ConnectEvent::SessionCreated | ConnectEvent::SessionResumed
     ));
     connection
 }
 
-async fn wait_op(connection: &mut Connection<'_, '_, TokioConnection>, op: Op) {
+async fn wait_op(connection: &mut Connection<'_, '_, TokioConnection>, expected: Op) {
     timeout(Duration::from_secs(5), async {
         loop {
-            if connection.is_complete(&op) {
-                break;
+            match connection.poll().await.unwrap() {
+                minimq::Event::Completed { op, outcome } if op == expected => {
+                    outcome.check().unwrap();
+                    break;
+                }
+                _ => {}
             }
-            if connection.is_invalidated(&op) {
-                panic!("operation invalidated");
-            }
-            debug_assert!(connection.is_pending(&op));
-            let _ = connection.poll().await.unwrap();
         }
     })
     .await
@@ -192,7 +191,7 @@ async fn miniconf_publications_advertise_utf8_payloads() {
     let nested_topic = format!("{prefix}/settings/nested/leaf");
     timeout(Duration::from_secs(5), async {
         while !(saw_alive && saw_schema && saw_value && saw_nested) {
-            let Some(inbound) = observer.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = observer.poll().await.unwrap() else {
                 continue;
             };
             assert!(
@@ -246,7 +245,7 @@ async fn miniconf_publications_advertise_utf8_payloads() {
     }
     timeout(Duration::from_secs(5), async {
         loop {
-            if let Some(inbound) = requester.poll().await.unwrap() {
+            if let minimq::Event::Publish(inbound) = requester.poll().await.unwrap() {
                 assert_eq!(inbound.topic(), reply_topic);
                 assert!(has_utf8_payload_indicator(&inbound));
                 break;
@@ -257,7 +256,7 @@ async fn miniconf_publications_advertise_utf8_payloads() {
     .unwrap();
     timeout(Duration::from_secs(5), async {
         loop {
-            let Some(inbound) = observer.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = observer.poll().await.unwrap() else {
                 continue;
             };
             if inbound.topic() == value_topic {
@@ -449,10 +448,13 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
             .publish(Publication::bytes(&format!("{prefix}/{suffix}"), b"42").retain())
             .await
             .unwrap();
-        let inbound = timeout(Duration::from_secs(5), connection.recv())
+        let inbound = timeout(Duration::from_secs(5), connection.poll())
             .await
             .unwrap()
             .unwrap();
+        let minimq::Event::Publish(inbound) = inbound else {
+            panic!("expected publication")
+        };
         assert!(inbound.retained());
         assert!(matches!(
             service.handle(&miniconf, &mut settings, &inbound),
@@ -472,7 +474,7 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
 
     timeout(Duration::from_secs(5), async {
         loop {
-            let Some(inbound) = connection.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = connection.poll().await.unwrap() else {
                 continue;
             };
             if inbound.topic() != format!("{prefix}/settings/value") {
@@ -487,7 +489,9 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 .await
                 .unwrap()
             {
-                let _ = connection.poll().await.unwrap();
+                if let minimq::Event::Completed { op, outcome } = connection.poll().await.unwrap() {
+                    service.handle_completion(op, &outcome);
+                }
             }
             break;
         }
@@ -506,7 +510,7 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
         .unwrap();
     timeout(Duration::from_secs(5), async {
         loop {
-            let Some(inbound) = connection.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = connection.poll().await.unwrap() else {
                 continue;
             };
             if inbound.topic() != format!("{prefix}/settings/value")
@@ -523,7 +527,9 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 .await
                 .unwrap()
             {
-                let _ = connection.poll().await.unwrap();
+                if let minimq::Event::Completed { op, outcome } = connection.poll().await.unwrap() {
+                    service.handle_completion(op, &outcome);
+                }
             }
             break;
         }
@@ -653,10 +659,13 @@ async fn absent_subtree_clears_authoritative_leaves() {
         .unwrap();
         let mut values = BTreeMap::new();
         while values.len() < 2 {
-            let inbound = timeout(Duration::from_secs(5), observer.recv())
+            let inbound = timeout(Duration::from_secs(5), observer.poll())
                 .await
                 .unwrap()
                 .unwrap();
+            let minimq::Event::Publish(inbound) = inbound else {
+                panic!("expected publication")
+            };
             assert!(inbound.retained());
             assert_eq!(user_property(&inbound, "auth"), Some(""));
             assert!(has_utf8_payload_indicator(&inbound));
@@ -730,7 +739,7 @@ async fn startup_and_service_resume_after_step_cancellation() {
         .await
         .unwrap()
         .unwrap();
-    let mut startup = miniconf_mqtt::Startup::new(&mut miniconf, ConnectEvent::Connected);
+    let mut startup = miniconf_mqtt::Startup::new(&mut miniconf, ConnectEvent::SessionCreated);
 
     paused.set(true);
     {
@@ -747,7 +756,9 @@ async fn startup_and_service_resume_after_step_cancellation() {
             .await
             .unwrap()
         {
-            let _ = connection.poll().await.unwrap();
+            if let minimq::Event::Completed { op, outcome } = connection.poll().await.unwrap() {
+                startup.handle_completion(op, &outcome);
+            }
         }
     })
     .await
@@ -779,7 +790,7 @@ async fn startup_and_service_resume_after_step_cancellation() {
     let mut settings = settings;
     timeout(Duration::from_secs(5), async {
         loop {
-            let Some(inbound) = connection.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = connection.poll().await.unwrap() else {
                 continue;
             };
             assert!(matches!(
@@ -799,11 +810,13 @@ async fn startup_and_service_resume_after_step_cancellation() {
             .await
             .unwrap()
         {
-            let _ = connection.poll().await.unwrap();
+            if let minimq::Event::Completed { op, outcome } = connection.poll().await.unwrap() {
+                service.handle_completion(op, &outcome);
+            }
         }
         let mut saw_setting = false;
         loop {
-            let Some(inbound) = requester.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = requester.poll().await.unwrap() else {
                 continue;
             };
             saw_setting |= inbound.topic() == format!("{prefix}/settings/control/enabled")
@@ -857,7 +870,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
     let mut saw_backlog = false;
     timeout(Duration::from_secs(5), async {
         while accepted < 2 {
-            let Some(inbound) = connection.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = connection.poll().await.unwrap() else {
                 continue;
             };
             match service.handle(&miniconf, &mut settings, &inbound) {
@@ -878,7 +891,9 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
             {
                 break;
             }
-            let _ = connection.poll().await.unwrap();
+            if let minimq::Event::Completed { op, outcome } = connection.poll().await.unwrap() {
+                service.handle_completion(op, &outcome);
+            }
         }
     })
     .await
@@ -930,7 +945,7 @@ async fn service_rejects_overflow_without_mutating() {
             .await
             .unwrap()
             .unwrap();
-        if let Some(inbound) = inbound {
+        if let minimq::Event::Publish(inbound) = inbound {
             break inbound;
         }
     };
@@ -944,7 +959,7 @@ async fn service_rejects_overflow_without_mutating() {
             .await
             .unwrap()
             .unwrap();
-        if let Some(inbound) = inbound {
+        if let minimq::Event::Publish(inbound) = inbound {
             break inbound;
         }
     };
@@ -981,10 +996,13 @@ async fn service_rejects_overflow_without_mutating() {
             publication = publication.properties(&props);
         }
         publisher.publish(publication).await.unwrap();
-        let inbound = timeout(Duration::from_secs(5), connection.recv())
+        let inbound = timeout(Duration::from_secs(5), connection.poll())
             .await
             .unwrap()
             .unwrap();
+        let minimq::Event::Publish(inbound) = inbound else {
+            panic!("expected publication")
+        };
         let event = service.handle(&miniconf, &mut settings, &inbound);
         if path == "nested/leaf" {
             assert!(matches!(event, ServiceEvent::Busy));
@@ -1027,7 +1045,7 @@ async fn service_rejects_trailing_input_without_a_change() {
             .await
             .unwrap()
             .unwrap();
-        if let Some(inbound) = inbound {
+        if let minimq::Event::Publish(inbound) = inbound {
             assert!(matches!(
                 service.handle(&miniconf, &mut settings, &inbound),
                 ServiceEvent::Idle
@@ -1069,7 +1087,7 @@ async fn interrupted_startup_restarts_before_using_the_resume_path() {
                 .connect(connect_addr(addr).await.unwrap())
                 .await
                 .unwrap();
-            assert_eq!(connection.connect_event(), ConnectEvent::Connected);
+            assert_eq!(connection.connect_event(), ConnectEvent::SessionCreated);
             let mut startup =
                 miniconf_mqtt::Startup::new(&mut miniconf, connection.connect_event());
             let cut_topic = format!("{prefix}/{cut}");
@@ -1082,7 +1100,7 @@ async fn interrupted_startup_restarts_before_using_the_resume_path() {
                 );
                 // Observe publications before accepting their ACKs at the device.
                 loop {
-                    let Some(inbound) = observer.poll().await.unwrap() else {
+                    let minimq::Event::Publish(inbound) = observer.poll().await.unwrap() else {
                         continue;
                     };
                     if inbound.topic().starts_with(&cut_topic) {
@@ -1090,7 +1108,11 @@ async fn interrupted_startup_restarts_before_using_the_resume_path() {
                     }
                     if inbound.topic().starts_with(&format!("{prefix}/schema/")) {
                         while !connection.session().is_publish_quiescent() {
-                            let _ = connection.poll().await.unwrap();
+                            if let minimq::Event::Completed { op, outcome } =
+                                connection.poll().await.unwrap()
+                            {
+                                startup.handle_completion(op, &outcome);
+                            }
                         }
                         break;
                     }
@@ -1105,7 +1127,7 @@ async fn interrupted_startup_restarts_before_using_the_resume_path() {
                 .connect(connect_addr(addr).await.unwrap())
                 .await
                 .unwrap();
-            assert_eq!(connection.connect_event(), ConnectEvent::Reconnected);
+            assert_eq!(connection.connect_event(), ConnectEvent::SessionResumed);
             miniconf
                 .startup(&mut connection, &settings)
                 .await
@@ -1118,7 +1140,7 @@ async fn interrupted_startup_restarts_before_using_the_resume_path() {
                 pages: usize,
             }
             loop {
-                let Some(inbound) = observer.poll().await.unwrap() else {
+                let minimq::Event::Publish(inbound) = observer.poll().await.unwrap() else {
                     continue;
                 };
                 if inbound.payload().is_empty() {
@@ -1210,10 +1232,10 @@ async fn completed_startup_resumes_after_draining_pending_traffic() {
             .connect(connect_addr(addr).await.unwrap())
             .await
             .unwrap();
-        assert_eq!(connection.connect_event(), ConnectEvent::Reconnected);
+        assert_eq!(connection.connect_event(), ConnectEvent::SessionResumed);
         miniconf.startup(&mut connection, &settings).await.unwrap();
         loop {
-            let Some(inbound) = observer.poll().await.unwrap() else {
+            let minimq::Event::Publish(inbound) = observer.poll().await.unwrap() else {
                 continue;
             };
             if inbound.payload().is_empty() {

@@ -34,8 +34,10 @@ For precise control, `miniconf_mqtt` exposes four explicit building blocks:
 
 `Startup::step()`, `Publisher::step()`, and `Service::step()` leave inbound routing to the caller.
 `Ok(true)` means the workflow is complete or the service queue is empty. After `Ok(false)`, drive
-`Connection::poll()`, route any inbound publication, and retry. `Startup::run()` and
-`Publisher::run()` consume connection progress themselves and may discard inbound publications.
+`Connection::poll()`, route publications to `handle()` and completions to the owning workflow’s
+`handle_completion()`, then retry. The next `step()` reports any broker rejection. `Startup::run()` and
+`Publisher::run()` own connection progress until their work completes. Use the cooperative
+`step()` methods to route events among workflows sharing a connection.
 
 ```rust
 let mut service = Service::<4>::new();
@@ -43,10 +45,15 @@ let mut service = Service::<4>::new();
 loop {
     service.step(&miniconf, &mut connection, &settings).await?;
 
-    if let Some(inbound) = connection.poll().await? {
-        match service.handle(&miniconf, &mut settings, &inbound) {
-            ServiceEvent::Unhandled => { /* app traffic */ }
-            ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}
+    match connection.poll().await? {
+        minimq::Event::Publish(inbound) => {
+            match service.handle(&miniconf, &mut settings, &inbound) {
+                ServiceEvent::Unhandled => { /* app traffic */ }
+                ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}
+            }
+        }
+        minimq::Event::Completed { op, outcome } => {
+            service.handle_completion(op, &outcome);
         }
     }
 }
@@ -77,15 +84,15 @@ Use it only before the first Miniconf MQTT startup of a device process. On a dev
 network glitch, keep the live settings in RAM authoritative.
 `miniconf.startup(...)` reads the connect event from the live connection:
 
-- `ConnectEvent::Connected`: publish schema/settings, subscribe to `set/#`, and publish `alive`
-- `ConnectEvent::Reconnected`: the broker resumed the MQTT session. If startup previously completed,
+- `ConnectEvent::SessionCreated`: publish schema/settings, subscribe to `set/#`, and publish `alive`
+- `ConnectEvent::SessionResumed`: the broker resumed the MQTT session. If startup previously completed,
   Miniconf republishes only `alive`; otherwise it restarts schema/settings synchronization
   from current settings
 
 MQTT session recovery only replays publications already admitted to that session.
 An accepted leaf write can still have a mirror or reply waiting in `Service`.
 If that work was dropped or failed, use `Startup::connected(&mut miniconf)` even
-for `ConnectEvent::Reconnected`, then drive startup normally. This republishes
+for `ConnectEvent::SessionResumed`, then drive startup normally. This republishes
 current settings before `alive`; it does not recreate lost request replies.
 In particular, use this path when constructing a new `Service` after each
 connection error or abandoning an interrupted `serve()` call. A request timeout
