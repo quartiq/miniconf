@@ -91,12 +91,11 @@ fn complete_op(
     op: Op,
     outcome: &minimq::Outcome<'_>,
 ) -> bool {
-    if let Some(pending) = pending.as_mut().filter(|pending| pending.op == op) {
-        pending.result = Some(outcome.check());
-        true
-    } else {
-        false
-    }
+    let Some(pending) = pending.as_mut().filter(|pending| pending.op == op) else {
+        return false;
+    };
+    pending.result = Some(outcome.check());
+    true
 }
 
 fn poll_op<IO: Io>(
