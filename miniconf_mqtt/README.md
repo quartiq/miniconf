@@ -5,8 +5,7 @@
 It owns Miniconf MQTT protocol state; the caller owns the MQTT session, live connection, and
 settings tree.
 
-Miniconf requires MQTT 5. MQTT 3.1.1 configurations and connections are rejected at the client
-and workflow entry points.
+Miniconf requires MQTT 5.
 
 ## Quick start
 
@@ -89,14 +88,11 @@ network glitch, keep the live settings in RAM authoritative.
   Miniconf republishes only `alive`; otherwise it restarts schema/settings synchronization
   from current settings
 
-MQTT session recovery only replays publications already admitted to that session.
-An accepted leaf write can still have a mirror or reply waiting in `Service`.
-If that work was dropped or failed, use `Startup::connected(&mut miniconf)` even
-for `ConnectEvent::SessionResumed`, then drive startup normally. This republishes
-current settings before `alive`; it does not recreate lost request replies.
-In particular, use this path when constructing a new `Service` after each
-connection error or abandoning an interrupted `serve()` call. A request timeout
-does not imply that its write was rolled back.
+After replacing a `Service` or abandoning an interrupted `serve()` call, use
+`Startup::connected(&mut miniconf)` even for `ConnectEvent::SessionResumed`.
+This republishes current settings before `alive`, recovering mirrors whose
+publication was interrupted. Request replies can still be lost after a write
+was applied; check the settings before retrying a timed-out mutation.
 
 ## Protocol details
 
