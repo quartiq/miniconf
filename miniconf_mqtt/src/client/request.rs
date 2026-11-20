@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 use core::fmt::Write as _;
 
-use heapless::{String, Vec};
+use heapless::String;
 use miniconf::{
     DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     ValueError, json_core,
@@ -25,12 +25,12 @@ pub(crate) enum FollowUp {
     Publish {
         state: ChangedKey,
         reply: Option<ReplyTarget>,
-        op: Option<Op>,
+        op: Option<super::PendingOperation>,
     },
     Reply {
         target: ReplyTarget,
         error: Option<ReplyError>,
-        op: Option<Op>,
+        op: Option<super::PendingOperation>,
     },
     Done,
 }
@@ -351,19 +351,21 @@ impl FollowUp {
                         .await
                     {
                         Ok(next) => {
-                            *op = Some(next);
+                            *op = Some(next.into());
                             return Ok(false);
                         }
                         Err(err) if is_backpressure(connection, &err) => return Ok(false),
                         Err(err) => {
-                            if let Some(target) = reply.take() {
+                            if let Some(error) = publish_error(&err)
+                                && let Some(target) = reply.take()
+                            {
                                 warn!(
                                     "Authoritative setting publish failed; replying with Miniconf error reply_topic={=str}",
                                     target.topic()
                                 );
                                 *self = Self::Reply {
                                     target,
-                                    error: Some(publish_error(&err)),
+                                    error: Some(error),
                                     op: None,
                                 };
                                 continue;
@@ -387,7 +389,7 @@ impl FollowUp {
                     }
                     match reply(connection, target, error.as_ref()).await {
                         Ok(next) => {
-                            *op = Some(next);
+                            *op = Some(next.into());
                             return Ok(false);
                         }
                         Err(err) if is_backpressure(connection, &err) => return Ok(false),
@@ -434,18 +436,31 @@ fn encode_body(body: &ResponseBody) -> ReplyError {
     }
 }
 
-fn publish_error<E: core::fmt::Debug>(err: &Error<E>) -> ReplyError {
+fn publish_error<E>(err: &Error<E>) -> Option<ReplyError> {
     let mut error = String::new();
-    write!(error.as_mut_view(), "{err:?}").ok();
     let mut payload = String::new();
-    write!(payload.as_mut_view(), "{err}").ok();
-    ReplyError {
+    let class = match err {
+        Error::Tree(err) => {
+            write!(error.as_mut_view(), "{err:?}").ok();
+            write!(payload.as_mut_view(), "{err}").ok();
+            "DescendError"
+        }
+        Error::Mqtt(MqttError::Resource(err)) => {
+            write!(error.as_mut_view(), "{err:?}").ok();
+            write!(payload.as_mut_view(), "{err}").ok();
+            "ResourceError"
+        }
+        // Session and transport failures belong to the connection owner. Another
+        // publication cannot reliably report them over the same connection.
+        _ => return None,
+    };
+    Some(ReplyError {
         kind: "publish",
-        class: "Error",
+        class,
         error,
         depth: None,
         payload,
-    }
+    })
 }
 
 async fn reply<IO>(
@@ -456,41 +471,73 @@ async fn reply<IO>(
 where
     IO: Io,
 {
-    let mut depth_text = String::<16>::new();
-    // Two text properties, four error fields, and an optional depth.
-    let mut props = Vec::<_, 7>::new();
-    for prop in TRANSIENT_TEXT_PROPERTIES {
-        props.push(prop.clone()).unwrap();
-    }
-    let payload = if let Some(error) = error {
-        for (key, value) in [
-            ("code", "Error"),
-            ("kind", error.kind),
-            ("class", error.class),
-            ("error", error.error.as_str()),
-        ] {
-            props.push(Property::UserProperty(key, value)).unwrap();
-        }
-        if let Some(depth) = error.depth
-            && write!(depth_text.as_mut_view(), "{depth}").is_ok()
-        {
-            props
-                .push(Property::UserProperty("depth", &depth_text))
-                .unwrap();
-        }
-        error.payload.as_bytes()
+    let mut depth_text = String::<20>::new();
+    let [format, expiry] = TRANSIENT_TEXT_PROPERTIES;
+    let mut props = [
+        format.clone(),
+        expiry.clone(),
+        Property::UserProperty("code", "Ok"),
+        Property::UserProperty("kind", ""),
+        Property::UserProperty("class", ""),
+        Property::UserProperty("error", ""),
+        Property::UserProperty("depth", ""),
+    ];
+    let (payload, count) = if let Some(error) = error {
+        props[2] = Property::UserProperty("code", "Error");
+        props[3] = Property::UserProperty("kind", error.kind);
+        props[4] = Property::UserProperty("class", error.class);
+        props[5] = Property::UserProperty("error", error.error.as_str());
+        let count = if let Some(depth) = error.depth {
+            // A decimal usize fits in 20 bytes on all supported targets.
+            write!(depth_text.as_mut_view(), "{depth}").ok();
+            props[6] = Property::UserProperty("depth", &depth_text);
+            7
+        } else {
+            6
+        };
+        (error.payload.as_bytes(), count)
     } else {
-        props.push(Property::UserProperty("code", "Ok")).unwrap();
-        b""
+        (&b""[..], 3)
     };
     connection
         .publish(
             target
                 .publication(payload)
-                .properties(&props)
+                .properties(&props[..count])
                 .qos(QoS::AtLeastOnce),
         )
         .await
         .map_err(simple_pub_error)?
         .ok_or(Error::Mqtt(MqttError::InvalidRequest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn publish_replies_report_local_failures_only() {
+        // Transport errors need no text formatter: they go back to the owner.
+        struct Transport;
+        let local: Error<Transport> =
+            Error::Mqtt(MqttError::Resource(minimq::ResourceError::BufferTooSmall));
+        let reply = publish_error(&local).unwrap();
+        assert_eq!(reply.kind, "publish");
+        assert_eq!(reply.class, "ResourceError");
+        assert!(!reply.error.is_empty());
+        assert!(!reply.payload.is_empty());
+
+        let tree: Error<Transport> = Error::Tree(miniconf::DescendError::Inner(()));
+        assert_eq!(publish_error(&tree).unwrap().class, "DescendError");
+        for error in [
+            MqttError::Transport(Transport),
+            MqttError::Disconnected,
+            MqttError::NotReady,
+            MqttError::WriteZero,
+            MqttError::MissingCompletion,
+            MqttError::InvalidRequest,
+        ] {
+            assert!(publish_error(&Error::Mqtt(error)).is_none());
+        }
+    }
 }

@@ -1,3 +1,4 @@
+mod load;
 mod request;
 mod sync;
 
@@ -20,14 +21,16 @@ use crate::{
     MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION, RESPONSE_CORRELATION_LENGTH,
     RETAINED_TEXT_PROPERTIES, TopicString, debug, message::simple_pub_error,
 };
+pub use load::LoadRetained;
 use request::FollowUp;
-pub use sync::{LoadRetained, Publisher, Startup};
+pub use sync::{Publisher, Startup};
 
 /// Exact leaf indices produced by Miniconf request handling.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 /// Miniconf MQTT setup, tree, or MQTT connection error.
+#[derive(defmt::Format)]
 pub enum Error<E> {
     /// Tree traversal or path resolution failed before any MQTT I/O.
     #[error("tree path resolution failed: {0}")]
@@ -75,24 +78,46 @@ fn is_backpressure<IO: Io>(connection: &Connection<'_, '_, IO>, error: &Error<IO
     }
 }
 
-fn poll_op<IO>(
+pub(crate) struct PendingOperation {
+    op: Op,
+    result: Option<Result<(), minimq::PeerError>>,
+}
+
+impl From<Op> for PendingOperation {
+    fn from(op: Op) -> Self {
+        Self { op, result: None }
+    }
+}
+
+fn complete_op(
+    pending: &mut Option<PendingOperation>,
+    op: Op,
+    outcome: &minimq::Outcome<'_>,
+) -> bool {
+    let Some(pending) = pending.as_mut().filter(|pending| pending.op == op) else {
+        return false;
+    };
+    pending.result = Some(outcome.check());
+    true
+}
+
+fn poll_op<IO: Io>(
     connection: &Connection<'_, '_, IO>,
-    op: &mut Option<Op>,
-) -> Result<PendingOp, Error<IO::Error>>
-where
-    IO: Io,
-{
-    let Some(current) = *op else {
+    op: &mut Option<PendingOperation>,
+) -> Result<PendingOp, Error<IO::Error>> {
+    let Some(current) = op else {
         return Ok(PendingOp::Idle);
     };
-    if connection.is_pending(&current) {
-        Ok(PendingOp::Pending)
-    } else if connection.is_complete(&current) {
+    if let Some(result) = current.result {
+        result.map_err(MqttError::Peer)?;
         *op = None;
         Ok(PendingOp::Complete)
+    } else if !connection.is_connected() || connection.is_invalidated(&current.op) {
+        Err(MqttError::Disconnected.into())
+    } else if !connection.is_pending(&current.op) {
+        Err(MqttError::MissingCompletion.into())
     } else {
-        debug_assert!(connection.is_invalidated(&current));
-        Err(Error::Mqtt(MqttError::Disconnected))
+        Ok(PendingOp::Pending)
     }
 }
 
@@ -161,6 +186,7 @@ where
 
 /// Result of `Miniconf::serve()`.
 #[must_use = "match on the event to handle unhandled traffic or a changed leaf"]
+#[derive(defmt::Format)]
 pub enum Event<T> {
     /// One non-Miniconf inbound publish was returned through the callback.
     Unhandled(T),
@@ -170,6 +196,7 @@ pub enum Event<T> {
 
 /// Immediate outcome of cooperative Miniconf service work.
 #[must_use = "match on the event to handle unhandled traffic or changed local settings"]
+#[derive(defmt::Format)]
 pub enum ServiceEvent {
     /// The message was consumed without reporting a settings change; follow-up work may be queued.
     Idle,
@@ -280,6 +307,9 @@ where
             .qos(QoS::AtLeastOnce);
         let config = config.will(will)?;
         let session = Session::new(config);
+        if session.protocol() != minimq::Protocol::V5 {
+            return Err(ConfigError::InvalidConfig);
+        }
 
         Ok((
             Self {
@@ -294,8 +324,8 @@ where
 
     /// Run Miniconf startup to completion after one MQTT connect event.
     ///
-    /// `ConnectEvent::Connected` republishes schema/settings, subscribes `set/#`, and publishes
-    /// `alive`. `ConnectEvent::Reconnected` only republishes `alive` if startup previously
+    /// `ConnectEvent::SessionCreated` republishes schema/settings, subscribes `set/#`, and publishes
+    /// `alive`. `ConnectEvent::SessionResumed` only republishes `alive` if startup previously
     /// completed; otherwise it restarts synchronization from the current settings.
     ///
     /// This is the simple unbounded startup path. Fresh startup may discard inbound publishes
@@ -334,12 +364,15 @@ where
         Settings: TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
+        if connection.session().protocol() != minimq::Protocol::V5 {
+            return Err(MqttError::InvalidRequest.into());
+        }
         // Reuse the bounded service path with capacity one. `serve()` drains every queued
         // follow-up before polling another request, so `Busy` is not reachable in normal use.
         let mut service = Service::<1>::new();
         loop {
             let inbound = connection.poll().await?;
-            let Some(inbound) = inbound else {
+            let minimq::Event::Publish(inbound) = inbound else {
                 continue;
             };
             let event = service.handle(self, settings, &inbound);
@@ -347,7 +380,9 @@ where
                 return Ok(Event::Unhandled(on_unhandled(&inbound)));
             }
             while !service.step(self, connection, settings).await? {
-                let _ = connection.poll().await?;
+                if let minimq::Event::Completed { op, outcome } = connection.poll().await? {
+                    service.handle_completion(op, &outcome);
+                }
             }
             if let ServiceEvent::Changed(changed) = event {
                 return Ok(Event::Changed(changed));
@@ -411,6 +446,17 @@ impl<const N: usize> Default for Service<N> {
 }
 
 impl<const N: usize> Service<N> {
+    /// Record a completion, returning whether it belongs to this workflow.
+    /// The next `step` reports any broker rejection.
+    pub fn handle_completion(&mut self, op: Op, outcome: &minimq::Outcome<'_>) -> bool {
+        self.follow_ups.iter_mut().any(|follow_up| match follow_up {
+            FollowUp::Publish { op: pending, .. } | FollowUp::Reply { op: pending, .. } => {
+                complete_op(pending, op, outcome)
+            }
+            FollowUp::Done => false,
+        })
+    }
+
     /// Construct an empty bounded Miniconf service.
     pub const fn new() -> Self {
         Self {
@@ -498,6 +544,9 @@ impl<const N: usize> Service<N> {
         Settings: TreeSerialize,
         IO: Io,
     {
+        if connection.session().protocol() != minimq::Protocol::V5 {
+            return Err(MqttError::InvalidRequest.into());
+        }
         loop {
             let Some(follow_up) = self.follow_ups.front_mut() else {
                 return Ok(true);

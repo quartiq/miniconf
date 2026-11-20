@@ -80,7 +80,7 @@ pub(crate) const PROTOCOL_VERSION: u8 = 1;
 pub(crate) const TRANSIENT_EXPIRY_SECS: u32 = 30;
 pub(crate) const RETAINED_TEXT_PROPERTIES: &[minimq::Property<'static>] =
     &[minimq::Property::PayloadFormatIndicator(1)];
-pub(crate) const TRANSIENT_TEXT_PROPERTIES: &[minimq::Property<'static>] = &[
+pub(crate) const TRANSIENT_TEXT_PROPERTIES: &[minimq::Property<'static>; 2] = &[
     minimq::Property::PayloadFormatIndicator(1),
     minimq::Property::MessageExpiryInterval(TRANSIENT_EXPIRY_SECS),
 ];

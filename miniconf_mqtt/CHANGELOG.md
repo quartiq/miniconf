@@ -8,10 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.23.0...HEAD) - DATE
 
+### Added
+
+* Native `defmt` formatting for errors and service events.
+
+### Changed
+
+* **Breaking:** route completion events through `handle_completion()` before `step()`,
+  which reports rejection or `MissingCompletion` for an omitted outcome. The `run()` helpers
+  route completions internally.
+
 ### Fixed
 
 * Match complete MQTT topic levels and reject retained mutation requests.
 * Retry queued publications when shared MQTT TX storage is temporarily occupied.
+* Return publication transport/session failures to the connection owner instead of
+  attempting an error reply on the same connection.
 
 ## [0.23.0](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.22.1...miniconf_mqtt-v0.23.0) - 2026-09-25
 

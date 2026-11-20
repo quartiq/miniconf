@@ -1,3 +1,4 @@
+use defmt::{info, warn};
 use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf_mqtt::{Error, Event, Miniconf};
 use minimq::{ConfigBuilder, Error as MqttError};
@@ -18,36 +19,33 @@ async fn main() -> Result<(), Box<dyn core::error::Error>> {
     let (mut miniconf, mut session) =
         Miniconf::new(PREFIX, ConfigBuilder::from_buffer(&mut buffer, 1024)?)?;
     let mut settings = common::Settings::new();
-    defmt::info!("serving common fixture prefix={=str}", PREFIX);
-    defmt::info!(
+    info!("serving common fixture prefix={=str}", PREFIX);
+    info!(
         "try: miniconf --broker {=str} {=str} /control/enabled",
         broker.as_str(),
         PREFIX
     );
-    defmt::info!(
+    info!(
         "try: miniconf --broker {=str} {=str} /control/enabled=false",
         broker.as_str(),
         PREFIX
     );
 
     loop {
-        defmt::info!("connecting to mqtt://{=str}", broker.as_str());
+        info!("connecting to mqtt://{=str}", broker.as_str());
         let io = tokio::net::TcpStream::connect(&broker).await?;
         let mut connection = session.connect(FromTokio::new(io)).await?;
         miniconf.startup(&mut connection, &settings).await?;
-        defmt::info!(
-            "mqtt session ready event={}",
-            defmt::Debug2Format(&connection.connect_event())
-        );
+        info!("mqtt session ready event={}", connection.connect_event());
 
         loop {
             match miniconf.serve(&mut connection, &mut settings, |_| ()).await {
                 Ok(Event::Unhandled(())) => {}
                 Ok(Event::Changed(idx)) => {
-                    defmt::info!("settings updated key={}", idx);
+                    info!("settings updated key={}", idx);
                 }
                 Err(Error::Mqtt(MqttError::Disconnected)) => {
-                    defmt::warn!("mqtt disconnected; reconnecting");
+                    warn!("mqtt disconnected; reconnecting");
                     break;
                 }
                 Err(err) => panic!("{err}"),
