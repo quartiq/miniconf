@@ -20,4 +20,4 @@ rust_2018_idioms = { level = "deny", priority = -1 }
 unsafe_code = "forbid"
 
 [patch.crates-io]
-minimq = { path = "../minimq/minimq" }
+minimq = { git = "https://github.com/quartiq/minimq.git", rev = "24b6f12" }
